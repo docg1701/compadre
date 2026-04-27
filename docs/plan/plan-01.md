@@ -78,7 +78,7 @@ grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md
 - Replace Overview: single-engine STT (faster-whisper large-v3-turbo, int8, CPU-only)
 - Replace all sections:
   - **API Endpoint**: `POST /v1/audio/transcriptions` with multipart/form-data (file, model, language, response_format, temperature)
-  - **Request parameters table**: file (required, audio upload), model (ignored), language (default `pt`), response_format (text/json/verbose_json/srt/vtt), temperature (ignored)
+  - **Request parameters table**: file (required, audio upload), model (ignored), language (default `pt`; omit to use default, pass empty string for auto-detect), response_format (text/json/verbose_json/srt/vtt), temperature (ignored)
   - **Processing pipeline**: auth → rate-limit → acquire lock → ffmpeg decode to 16kHz mono WAV → faster-whisper transcribe → format output
   - **Engine parameters**: beam_size=5, word_timestamps=True, condition_on_previous_text=False, language="pt"
   - **Audio limits**: 25 MB max upload, 10 min max duration
@@ -138,7 +138,7 @@ grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md
   | `COMPADRE_WHISPER_MODEL_SIZE` | `large-v3-turbo` | faster-whisper model size | `large-v3-turbo` |
   | `COMPADRE_WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute type | `int8` |
   | `COMPADRE_WHISPER_CPU_THREADS` | `4` | CPU threads for inference (≥1) | `4` |
-  | `COMPADRE_WHISPER_LANGUAGE` | `pt` | Default transcription language; `""` for auto-detect | `pt` |
+  | `COMPADRE_WHISPER_LANGUAGE` | `pt` | Default transcription language. Set to empty string for auto-detect; omitting uses `pt`. | `pt` |
   | `COMPADRE_HF_HOME` | `./data/cache/huggingface` | HuggingFace cache directory | `/app/models` |
   | `MAX_UPLOAD_SIZE_MB` | `25` | Max upload file size in MB (1–100) | `25` |
   | `MAX_AUDIO_DURATION_SECONDS` | `600` | Max audio duration in seconds (≥1) | `600` |

@@ -625,12 +625,13 @@ Replace the IPs with your allowed addresses. Restart Caddy after changes: `docke
 
 ## Cron Jobs
 
-The bootstrap playbook installs two user-level cron jobs and a `CRON_TZ` envvar. The container's `restart: unless-stopped` policy plus the healthcheck cover transient process failures, so no daily restart is configured.
+The bootstrap playbook installs three user-level cron jobs and a `CRON_TZ` envvar. The container's `restart: unless-stopped` policy plus the healthcheck cover transient process failures, so no daily restart is configured.
 
 **Cron entries installed by bootstrap:**
 
 - `compadre-daily-suspension` -- 00:30 in `billing_timezone`, suspends keys whose `paid_until` has elapsed
 - `compadre-keys-backup` -- 02:00 in `billing_timezone` (configurable via `backup_hour`), captures an encrypted snapshot of the key registry; archives older than `backup_retention_days` are pruned
+- `compadre-audio-cleanup` -- every 6 hours, deletes generated audio files older than 24 hours (legacy from the prior TTS project; harmless on STT deployments where no audio is generated)
 - `CRON_TZ` envvar -- pins the cron daemon's timezone to `billing_timezone` so the suspension sweep and backup fire at the configured local hour
 
 Verify cron is active:

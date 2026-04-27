@@ -118,8 +118,15 @@ async def transcribe_audio(
     finally:
         input_path.unlink(missing_ok=True)
 
-    # Resolve language (default from settings, None for auto-detect)
-    lang = language if language is not None else settings.whisper_language
+    # Resolve language: explicit value overrides settings;
+    # empty string from form means auto-detect (None);
+    # omitted means use settings default.
+    if language is not None and language != "":
+        lang = language
+    elif language == "":
+        lang = None  # auto-detect
+    else:
+        lang = settings.whisper_language
 
     start = time.monotonic()
     request.app.state.queue_depth += 1

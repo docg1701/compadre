@@ -80,9 +80,7 @@ Expected response when fully ready:
     "engines": {
         "whisper": {
             "loaded": true,
-            "model": "large-v3-turbo",
-            "compute_type": "int8",
-            "cpu_threads": 4
+            "model": "large-v3-turbo"
         }
     },
     "queue_depth": 0,

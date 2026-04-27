@@ -189,9 +189,16 @@ class Settings(RegistrySettings):
     whisper_language: str | None = Field(
         default="pt",
         description=(
-            "Default transcription language (pt = Portuguese; None = auto-detect)"
+            "Default transcription language (pt = Portuguese; None = auto-detect)."
+            " Set the env var to an empty string to enable auto-detect."
         ),
     )
+
+    @field_validator("whisper_language")
+    @classmethod
+    def _empty_language_to_none(cls, v: str | None) -> str | None:
+        """Treat empty string as None so auto-detect works via env var."""
+        return None if v == "" else v
     max_upload_size_mb: int = Field(
         default=25,
         ge=1,

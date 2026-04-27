@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common issues with symptoms, causes, and resolution steps for both engines.
+Common issues with symptoms, causes, and resolution steps.
 
 ## Startup Failures
 
@@ -37,8 +37,8 @@ Common issues with symptoms, causes, and resolution steps for both engines.
 
 1. Check logs: `docker compose logs --tail=50`
 2. Look for SSL or connection errors in the download output
-3. Verify the download URLs are accessible from the VPS: `curl -I <model-url>`
-4. Alternative: pre-deploy models via `deploy-models.yml` playbook and clear download URLs
+3. Verify the VPS can reach HuggingFace Hub: `curl -I https://huggingface.co`
+4. Alternative: pre-seed the HuggingFace cache via `deploy-models.yml` playbook
 
 ### ffmpeg/ffprobe not found
 

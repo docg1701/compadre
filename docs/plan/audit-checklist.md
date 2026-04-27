@@ -55,6 +55,12 @@ Run these grep commands after audit; expect **zero hits** on each in current doc
 6. **api-architecture.md** and **api-reference.md** health response included `"compute_type"` and `"cpu_threads"` in `engines.whisper` — these fields do not exist in `src/compadre/health.py::build_health_response`. Removed from docs to match reality.
 7. **api-reference.md**, **api-architecture.md**, **local-testing-guide.md**, **configuration-reference.md**: "omit for auto-detect" for `language` was incorrect. Omitting the parameter uses the configured default (`pt`); auto-detect requires passing an empty string. Corrected in all four docs.
 8. **Source code stale references** (pre-existing, not doc-related): `exceptions.py` contained dead TTS classes `VoiceNotFoundError` and `GenerationError`; `main.py`, `rate_limit.py`, `keys/auth.py` contained stale `/v1/audio/speech` and TTS-specific comments. All fixed.
+9. **local-testing-guide.md** expected health response included `"compute_type"` and `"cpu_threads"` — fields that do not exist in `src/compadre/health.py`. Removed.
+10. **troubleshooting.md** "for both engines" heading was a TTS leftover; "Model download fails" step referenced `<model-url>` which doesn't exist for STT (faster-whisper uses HuggingFace Hub). Both fixed.
+11. **deployment-guide.md** claimed bootstrap installs "two" cron jobs but actually installs three (`compadre-audio-cleanup` is still present as a legacy cron). Corrected to three.
+12. **plan-01.md** Task 2 and Task 3 incorrectly described `language` behavior ("omit for auto-detect" and `""` for auto-detect at config level). Corrected to match actual code behavior.
+13. **Source code bug** (pre-existing): `api.py` passed `language=""` (empty string from multipart form) directly to `faster-whisper`, which expects `None` for auto-detect. Fixed `api.py` to treat empty string as `None`.
+14. **Source code bug** (pre-existing): `config.py` `whisper_language` field parsed empty env var as `""` instead of `None`, making auto-detect impossible via configuration. Added `_empty_language_to_none` validator.
 
 ## Decisions Made
 
