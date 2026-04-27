@@ -53,6 +53,7 @@ type-check = [
     "types-pyyaml>=6.0.12.20260408",
 ]
 security = ["bandit>=1.8"]
+ci = ["ansible-lint>=24", "yamllint>=1.35"]
 
 [tool.ruff]
 target-version = "py312"
@@ -72,6 +73,11 @@ module = [
     "cachetools.*",
 ]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/compadre"]
+omit = ["*/tests/*", "*/migrations/*", "*/__init__.py"]
+branch = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

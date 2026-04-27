@@ -25,6 +25,9 @@ def ensure_whisper_model(
     air-gapped deployments bake the model into the image volume.
     """
     if cache_dir is not None:
+        # scan-allow: HF_HOME set for huggingface_hub which reads
+        # os.environ directly — the library does not accept cache_dir
+        # at the API level for snapshot_download() resolution.
         os.environ.setdefault("HF_HOME", cache_dir)
 
     try:

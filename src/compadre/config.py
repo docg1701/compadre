@@ -199,6 +199,7 @@ class Settings(RegistrySettings):
     def _empty_language_to_none(cls, v: str | None) -> str | None:
         """Treat empty string as None so auto-detect works via env var."""
         return None if v == "" else v
+
     max_upload_size_mb: int = Field(
         default=25,
         ge=1,
@@ -215,7 +216,7 @@ class Settings(RegistrySettings):
         ge=10,
         description=(
             "Maximum wall-clock seconds allowed for a single transcription. "
-            "Default 1500 s (25 min) provides 2.5× headroom over the "
+            "Default 1500 s (25 min) provides 2.5x headroom over the "
             "10-minute max audio at RTF ~1.15."
         ),
     )

@@ -21,8 +21,13 @@ pytestmark = pytest.mark.slow
 
 # ── Happy-path: all audio formats ─────────────────────────────────────
 
-_FORMAT_NAMES = {"audio.ogg": "ogg/opus", "audio.mp3": "mp3", "audio.m4a": "m4a",
-                 "audio.wav": "wav", "audio.webm": "webm"}
+_FORMAT_NAMES = {
+    "audio.ogg": "ogg/opus",
+    "audio.mp3": "mp3",
+    "audio.m4a": "m4a",
+    "audio.wav": "wav",
+    "audio.webm": "webm",
+}
 
 
 @pytest.mark.parametrize(

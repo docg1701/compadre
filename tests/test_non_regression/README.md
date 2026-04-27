@@ -89,7 +89,7 @@ names / network aliases automatically).
 
 ### Why NOT the real `compadre-stt`
 
-- First-boot model download is ~1.5 GB (Kokoro + Qwen3 + tokenizer) and
+- First-boot model download is ~1.5 GB (faster-whisper large-v3-turbo) and
   takes multiple minutes on a GitHub-hosted runner.
 - Story 4.5a tests Caddy's header surface, not the TTS pipeline. Caddy
   applies its `header` block to *whatever* the upstream returns (200, 500,

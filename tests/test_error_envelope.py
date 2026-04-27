@@ -27,8 +27,7 @@ def assert_error_envelope(
     Returns the parsed JSON body for further field-level assertions.
     """
     assert response.status_code == expected_status, (
-        f"Expected {expected_status}, got {response.status_code}: "
-        f"{response.text[:300]}"
+        f"Expected {expected_status}, got {response.status_code}: {response.text[:300]}"
     )
     body = response.json()
     assert "error" in body, f"Response missing 'error' key: {body}"
@@ -71,8 +70,9 @@ async def test_error_envelope_400_invalid_request(
         data={"response_format": "xml"},
         headers=auth_headers,
     )
-    assert_error_envelope(response, expected_type="invalid_request_error",
-                          expected_status=400)
+    assert_error_envelope(
+        response, expected_type="invalid_request_error", expected_status=400
+    )
 
 
 # ── 401 — all auth failures ───────────────────────────────────────────
@@ -86,8 +86,9 @@ async def test_error_envelope_401_missing_auth(
         "/v1/audio/transcriptions",
         files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
     )
-    assert_error_envelope(response, expected_type="authentication_error",
-                          expected_status=401)
+    assert_error_envelope(
+        response, expected_type="authentication_error", expected_status=401
+    )
 
 
 async def test_error_envelope_401_unknown_key(
@@ -99,13 +100,12 @@ async def test_error_envelope_401_unknown_key(
         files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
         headers={"Authorization": "Bearer cmpd_live_" + "a" * 43},
     )
-    assert_error_envelope(response, expected_type="authentication_error",
-                          expected_status=401)
+    assert_error_envelope(
+        response, expected_type="authentication_error", expected_status=401
+    )
 
 
-async def test_error_envelope_401_suspended_key(
-    app: Any, client: AsyncClient
-) -> None:
+async def test_error_envelope_401_suspended_key(app: Any, client: AsyncClient) -> None:
     """Suspended key → 401 authentication_error with hint."""
     pt, _, _ = seed_customer_and_key(
         app.state.registry_db, customer_email="env401@s.com", status="suspended"
@@ -115,8 +115,9 @@ async def test_error_envelope_401_suspended_key(
         files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
         headers={"Authorization": f"Bearer {pt}"},
     )
-    body = assert_error_envelope(response, expected_type="authentication_error",
-                                 expected_status=401)
+    body = assert_error_envelope(
+        response, expected_type="authentication_error", expected_status=401
+    )
     assert "suspended" in body["error"]["hint"].lower()
 
 
@@ -128,8 +129,9 @@ async def test_error_envelope_404_not_found(
 ) -> None:
     """GET /nonexistent → 404 not_found_error with canonical envelope."""
     response = await client.get("/nonexistent")
-    body = assert_error_envelope(response, expected_type="not_found_error",
-                                 expected_status=404)
+    body = assert_error_envelope(
+        response, expected_type="not_found_error", expected_status=404
+    )
     assert "not found" in body["error"]["message"].lower()
 
 
@@ -141,8 +143,9 @@ async def test_error_envelope_405_method_not_allowed(
 ) -> None:
     """GET /v1/audio/transcriptions → 405 with canonical envelope + Allow header."""
     response = await client.get("/v1/audio/transcriptions")
-    body = assert_error_envelope(response, expected_type="method_not_allowed_error",
-                                 expected_status=405)
+    body = assert_error_envelope(
+        response, expected_type="method_not_allowed_error", expected_status=405
+    )
     assert "GET" in body["error"]["message"]
     assert "Allow" in response.headers
 
@@ -178,9 +181,7 @@ async def test_error_envelope_429_rate_limit(
     orig_today = getattr(auth_module, "_today_in_billing_tz", None)
     auth_module._today_in_billing_tz = lambda _s: date(2026, 4, 17)
     try:
-        plaintext, _, _ = seed_customer_and_key(
-            app.state.registry_db, rate_limit_rpm=1
-        )
+        plaintext, _, _ = seed_customer_and_key(app.state.registry_db, rate_limit_rpm=1)
         headers = {"Authorization": f"Bearer {plaintext}"}
 
         # First request passes
@@ -201,8 +202,9 @@ async def test_error_envelope_429_rate_limit(
         if orig_today is not None:
             auth_module._today_in_billing_tz = orig_today
 
-    body = assert_error_envelope(r2, expected_type="rate_limit_error",
-                                 expected_status=429)
+    body = assert_error_envelope(
+        r2, expected_type="rate_limit_error", expected_status=429
+    )
     assert "rate limit" in body["error"]["message"].lower()
     assert "retry-after" in r2.headers
     retry_after = int(r2.headers["retry-after"])
@@ -241,6 +243,7 @@ async def test_error_envelope_500_server_error() -> None:
     assert response.status_code == 500
     body: dict[str, object] = response.body  # type: ignore[assignment]
     import json
+
     parsed = json.loads(body) if isinstance(body, bytes) else body
     error = parsed["error"]
     assert error["type"] == "server_error"
@@ -266,6 +269,7 @@ async def test_error_envelope_503_service_unavailable(
             "/v1/audio/transcriptions",
             files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
         )
-    assert_error_envelope(response, expected_type="service_unavailable",
-                          expected_status=503)
+    assert_error_envelope(
+        response, expected_type="service_unavailable", expected_status=503
+    )
     assert response.headers["retry-after"] == "30"

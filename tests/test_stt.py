@@ -57,10 +57,13 @@ class TestLoadModel:
         unloaded."""
         engine = WhisperEngine()
 
-        with patch(
-            "faster_whisper.WhisperModel",
-            side_effect=RuntimeError("CUDA driver not found"),
-        ), pytest.raises(RuntimeError, match="CUDA driver not found"):
+        with (
+            patch(
+                "faster_whisper.WhisperModel",
+                side_effect=RuntimeError("CUDA driver not found"),
+            ),
+            pytest.raises(RuntimeError, match="CUDA driver not found"),
+        ):
             engine.load_model()
 
         assert engine._model is None
@@ -138,9 +141,7 @@ class TestTranscribe:
         assert segments == mock_segments
         assert info is mock_info
 
-    def test_raises_compadre_error_when_model_not_loaded(
-        self, tmp_path: Path
-    ) -> None:
+    def test_raises_compadre_error_when_model_not_loaded(self, tmp_path: Path) -> None:
         """``transcribe`` before ``load_model`` raises ``CompadreError``."""
         engine = WhisperEngine()
         audio_path = tmp_path / "valid.wav"
@@ -198,9 +199,7 @@ class TestTranscribe:
         message — no internal detail is leaked to the client."""
         engine = WhisperEngine()
         mock_model = MagicMock()
-        mock_model.transcribe.side_effect = RuntimeError(
-            "CTranslate2 kernel failed"
-        )
+        mock_model.transcribe.side_effect = RuntimeError("CTranslate2 kernel failed")
         engine._model = mock_model
 
         audio_path = tmp_path / "valid.wav"

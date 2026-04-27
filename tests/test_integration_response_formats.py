@@ -104,9 +104,7 @@ def test_format_verbose_json_output_structure(
 # ── srt ───────────────────────────────────────────────────────────────
 
 _SRT_LINE_RE = re.compile(r"^\d+$")
-_SRT_TIMESTAMP_RE = re.compile(
-    r"^\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}$"
-)
+_SRT_TIMESTAMP_RE = re.compile(r"^\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}$")
 
 
 def test_format_srt_output_structure(

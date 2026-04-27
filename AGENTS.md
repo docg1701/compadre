@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27
 
 ## Project Overview
 
@@ -22,6 +22,47 @@ uv run ruff check .              # Lint
 uv run mypy src/                 # Type check (strict mode)
 uv run pre-commit run --all-files  # All quality checks
 ```
+
+## CI Pipeline
+
+GitHub Actions runs 7 parallel jobs on every push/PR to `master`/`main`. All jobs must pass before merge.
+
+| Job | What it checks | Needs Docker |
+|-----|---------------|-------------|
+| `lint` | ruff check + ruff format --check + pre-commit (hadolint, yamllint, shellcheck, markdownlint) | No |
+| `type-check` | mypy strict mode (`mypy src/`) | No |
+| `test-fast` | `pytest -m "not slow and not non_regression"` (~252 tests, mocked, ~27s) | No |
+| `test-non-regression` | `pytest -m non_regression tests/test_non_regression/` (architecture contracts, static scans) | Yes |
+| `ansible-lint` | ansible-lint + yamllint on `deploy/ansible/` | No |
+| `docker-build` | `docker build` (push: false, verify image compiles) | Yes |
+| `coverage` | pytest with coverage, `--fail-under=60`, depends on `test-fast` | No |
+
+### Non-Regression Marker Contract
+
+- `@pytest.mark.non_regression` tests MUST live in `tests/test_non_regression/` only. A CI grep step enforces this.
+- `pyproject.toml` `addopts` defaults to `-m 'not non_regression'` so developer `pytest` never triggers Docker.
+- CI explicitly passes `-m non_regression` for the dedicated job.
+
+### Static Scan Conventions
+
+Non-regression tests enforce architecture contracts via AST/grep scans:
+- **No raw HTTPException** — only `CompadreError` subclasses
+- **No raw os.environ** — only `config.py` reads env vars (pydantic-settings); `download.py` has a justified exemption for HF_HOME
+- **Single Fernet decrypt** — `fernet.decrypt` only in `keys/crypto.py::decrypt_tax_id`
+- **Timing-safe compare** — no `==` on secrets
+- **No SQL string formatting** — parameterized queries only
+
+Justified exemptions use `# scan-allow[<label>]: <reason>` comments (minimum 3 non-whitespace-char reason). Adding a new scan: register the label in `_scan_common.py::SCAN_LABELS`.
+
+### Reproducing Locally
+
+```bash
+bash scripts/ci-local.sh              # all steps
+bash scripts/ci-local.sh lint         # single job
+bash scripts/ci-local.sh test-fast    # single job
+```
+
+Requires: `uv`, `ffmpeg`, optionally `docker`. Full runbook: `docs/ci-runbook.md`.
 
 ## Architecture — What You Must Know
 

@@ -68,3 +68,4 @@ models/
 *.bin
 *.safetensors
 .pi/
+.coverage

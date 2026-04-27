@@ -36,6 +36,8 @@ SCAN_LABELS: frozenset[str] = frozenset(
         "timing-safe-compare",  # 4.5c
         "no-raw-httpexception",  # 4.5f
         "sql-injection",  # 4.5g
+        "no-raw-os-environ",  # 4.5g os.environ guard
+        "single-fernet-decrypt",  # 4.5g Fernet decrypt invariant
     }
 )
 

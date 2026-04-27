@@ -2,7 +2,7 @@
 
 Boots the production Caddy image with the production Caddyfile against a
 stubbed nginx upstream so assertions exercise the real reverse-proxy
-header surface without the Kokoro/Qwen3 model-download cost.
+header surface without the faster-whisper model-download cost (~1.5 GB).
 """
 
 from __future__ import annotations

@@ -81,9 +81,7 @@ async def e2e_client(e2e_app: Any) -> AsyncIterator[AsyncClient]:
 
 
 @pytest.fixture()
-def e2e_auth_headers(
-    monkeypatch: pytest.MonkeyPatch, e2e_app: Any
-) -> dict[str, str]:
+def e2e_auth_headers(monkeypatch: pytest.MonkeyPatch, e2e_app: Any) -> dict[str, str]:
     """Bearer-auth header with a high-RPM seeded key."""
     from datetime import date
 

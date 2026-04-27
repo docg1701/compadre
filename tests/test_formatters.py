@@ -34,17 +34,13 @@ def _make_segment(
     seg.start = start
     seg.end = end
     if words is not None:
-        seg.words = [
-            _make_word(w, ws, we, wp) for w, ws, we, wp in words
-        ]
+        seg.words = [_make_word(w, ws, we, wp) for w, ws, we, wp in words]
     else:
         seg.words = None
     return seg
 
 
-def _make_word(
-    word: str, start: float, end: float, probability: float
-) -> MagicMock:
+def _make_word(word: str, start: float, end: float, probability: float) -> MagicMock:
     """Build a mock ``faster_whisper.transcribe.Word``."""
     w = MagicMock()
     w.word = word

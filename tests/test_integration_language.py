@@ -80,9 +80,7 @@ def test_language_en_override_on_pt_audio(
     assert isinstance(segments, list)
 
 
-def test_silent_audio_returns_empty_segments(
-    real_engine: Any, tmp_path: Path
-) -> None:
+def test_silent_audio_returns_empty_segments(real_engine: Any, tmp_path: Path) -> None:
     """1-second silence WAV → info populated, but zero segments (or empty)."""
     silent_bytes = _generate_silent_wav(1000)
     silent_wav = tmp_path / "silent.wav"

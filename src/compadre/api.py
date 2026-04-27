@@ -98,8 +98,7 @@ async def transcribe_audio(
                     raise InvalidRequestError(
                         message=f"File too large ({total / (1024 * 1024):.1f} MB)",
                         hint=(
-                            f"Maximum upload size is"
-                            f" {settings.max_upload_size_mb} MB."
+                            f"Maximum upload size is {settings.max_upload_size_mb} MB."
                         ),
                     )
                 tmp_in.write(chunk)
@@ -167,7 +166,10 @@ async def transcribe_audio(
             except TimeoutError as exc:
                 logger.warning("Transcription timed out")
                 raise CompadreError(
-                    message=f"Transcription timed out after {settings.transcription_timeout_seconds} seconds",
+                    message=(
+                        f"Transcription timed out after"
+                        f" {settings.transcription_timeout_seconds} seconds"
+                    ),
                     status_code=500,
                     error_type="server_error",
                     hint=(

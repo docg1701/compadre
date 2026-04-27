@@ -41,9 +41,7 @@ class TestDecodeAudioToWav:
         assert result == output_path
         mock_run.assert_called_once()
 
-    def test_raises_invalid_request_on_nonzero_returncode(
-        self, tmp_path: Path
-    ) -> None:
+    def test_raises_invalid_request_on_nonzero_returncode(self, tmp_path: Path) -> None:
         """ffmpeg returning non-zero exit code raises
         ``InvalidRequestError`` with a corruption hint."""
         input_path = tmp_path / "corrupt.opus"
@@ -55,9 +53,7 @@ class TestDecodeAudioToWav:
                 1, "ffmpeg", stderr="Invalid data found"
             )
 
-            with pytest.raises(
-                InvalidRequestError, match="unsupported or corrupted"
-            ):
+            with pytest.raises(InvalidRequestError, match="unsupported or corrupted"):
                 decode_audio_to_wav(input_path, output_path)
 
     def test_raises_invalid_request_when_output_file_missing(

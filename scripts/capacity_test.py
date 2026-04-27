@@ -246,6 +246,7 @@ async def run_tier(
     headers = {"Authorization": f"Bearer {api_key}"}
 
     async with httpx.AsyncClient(verify=not insecure) as client:
+
         async def _health_loop() -> None:
             nonlocal live_qd, live_mem
             while not stop.is_set():
@@ -461,9 +462,7 @@ def build_report(
     else:
         ok = [m for m in sustainable.requests if m.status_code == 200]
         capacity_rpm = (
-            len(ok) / sustainable.wall_time * 60
-            if sustainable.wall_time
-            else 10
+            len(ok) / sustainable.wall_time * 60 if sustainable.wall_time else 10
         )
         ln(
             f"- **Sustainable rate:** {sustainable.target_rate} req/min"
@@ -474,8 +473,7 @@ def build_report(
             f" {pct(sorted(m.latency_s for m in ok), 95):.1f}s"
         )
         err_pct = (
-            (len(sustainable.requests) - len(ok))
-            / len(sustainable.requests) * 100
+            (len(sustainable.requests) - len(ok)) / len(sustainable.requests) * 100
         )
         ln(f"- **Error rate:** {err_pct:.1f}%")
         ln("")
@@ -570,24 +568,14 @@ def build_report(
     )
     monthly_90k = 90000 * audio_duration_s / 60 * OPENAI_WHISPER_USD_PER_MIN
     savings_pct = (1 - comadre_cost_usd / monthly_90k) * 100
-    ln(
-        f"  - OpenAI Whisper: ${monthly_90k:.0f}/mo"
-    )
-    ln(
-        f"  - Compadre 1x CX33: ${comadre_cost_usd:.0f}/mo"
-    )
-    ln(
-        f"  - Savings: ${monthly_90k - comadre_cost_usd:.0f}/mo"
-        f" ({savings_pct:.0f}%)"
-    )
+    ln(f"  - OpenAI Whisper: ${monthly_90k:.0f}/mo")
+    ln(f"  - Compadre 1x CX33: ${comadre_cost_usd:.0f}/mo")
+    ln(f"  - Savings: ${monthly_90k - comadre_cost_usd:.0f}/mo ({savings_pct:.0f}%)")
     ln("")
     ln("### Key Takeaways")
     ln("")
     ln(f"- **Compadre fixed cost:** ${comadre_cost_usd:.2f}/mo (Hetzner CX33)")
-    ln(
-        "- **OpenAI Whisper scales linearly:**"
-        " $0.006/min x minutes processed"
-    )
+    ln("- **OpenAI Whisper scales linearly:** $0.006/min x minutes processed")
     ln("- **Data privacy advantage:** Compadre processes audio on your own hardware")
     ln("- **No rate limits:** Self-hosted, no API quota to exhaust")
     ln(
@@ -669,10 +657,7 @@ async def main() -> None:
 
     print(f"Compadre STT Capacity Test — {args.url}")
     print(f"Rates: {rates} req/min | Duration per rate: {args.duration_per_rate}s")
-    print(
-        f"Audio: {args.audio_duration}s"
-        f" | Format: {args.response_format}"
-    )
+    print(f"Audio: {args.audio_duration}s | Format: {args.response_format}")
     print(f"Seed: {args.seed} | Output: {output_dir.resolve()}")
 
     # Quick connectivity check

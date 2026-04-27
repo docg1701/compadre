@@ -505,6 +505,7 @@ async def test_temp_files_cleaned_after_decode_failure(
 
     def _fail_decode(*args: object, **kwargs: object) -> None:
         from compadre.exceptions import InvalidRequestError
+
         raise InvalidRequestError("simulated decode failure", hint="test")
 
     monkeypatch.setattr(api_module, "decode_audio_to_wav", _fail_decode)

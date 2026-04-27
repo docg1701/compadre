@@ -125,6 +125,11 @@ def app(
     )
     get_settings.cache_clear()
 
+    # Prevent model download (~1.5 GB) when lifespan fires via
+    # ASGITransport in the client fixture. The mock_engine fixture
+    # already replaces WhisperModel — this guards the download step.
+    monkeypatch.setattr("compadre.main.ensure_whisper_model", lambda **kwargs: None)
+
     application = create_app()
     application.state.settings = get_settings()
     application.state.engine = mock_engine
@@ -281,7 +286,6 @@ def multi_format_audio_dir(
             subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
         except subprocess.CalledProcessError as exc:
             pytest.fail(
-                f"Failed to convert reference audio to {out_name}: "
-                f"{exc.stderr.strip()}"
+                f"Failed to convert reference audio to {out_name}: {exc.stderr.strip()}"
             )
     return out_dir

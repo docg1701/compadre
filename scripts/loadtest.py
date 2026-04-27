@@ -268,8 +268,15 @@ async def run_sequential(
         # Generate fresh audio bytes per request (in-memory, fast)
         audio_bytes = generate_sine_wav_bytes(dur)
         metric = await send_one(
-            client, base_url, api_key, audio_bytes, dur,
-            response_format, i, live_qd, live_mem,
+            client,
+            base_url,
+            api_key,
+            audio_bytes,
+            dur,
+            response_format,
+            i,
+            live_qd,
+            live_mem,
         )
         results.append(metric)
         ok_tag = (
@@ -313,8 +320,15 @@ async def concurrent_worker(
             counter["n"] += 1
 
         metric = await send_one(
-            client, base_url, api_key, audio_bytes, audio_duration_s,
-            response_format, req_id, live_qd, live_mem,
+            client,
+            base_url,
+            api_key,
+            audio_bytes,
+            audio_duration_s,
+            response_format,
+            req_id,
+            live_qd,
+            live_mem,
         )
         results.append(metric)
         ok_tag = (
@@ -369,8 +383,15 @@ async def sustained_worker(
             break
 
         metric = await send_one(
-            client, base_url, api_key, audio_bytes, audio_duration_s,
-            response_format, req_id, live_qd, live_mem,
+            client,
+            base_url,
+            api_key,
+            audio_bytes,
+            audio_duration_s,
+            response_format,
+            req_id,
+            live_qd,
+            live_mem,
         )
         results.append(metric)
         ok_tag = (
@@ -416,9 +437,7 @@ async def run_scenario(
 
     async with httpx.AsyncClient(verify=not insecure) as client:
         # Start health monitor
-        health_task = asyncio.create_task(
-            health_monitor(client, base_url, stop)
-        )
+        health_task = asyncio.create_task(health_monitor(client, base_url, stop))
 
         # Pre-generate a shared audio buffer for concurrent/sustained
         audio_bytes = generate_sine_wav_bytes(audio_duration)
@@ -428,25 +447,53 @@ async def run_scenario(
         if config.name == "sequential":
             # Sequential: one at a time via sequential worker
             seq_results = await run_sequential(
-                client, base_url, api_key, config, audio_duration,
-                response_format, 0, 0.0, stop, rng,
+                client,
+                base_url,
+                api_key,
+                config,
+                audio_duration,
+                response_format,
+                0,
+                0.0,
+                stop,
+                rng,
             )
             results = seq_results
         elif config.rate_per_minute > 0:
             # Sustained: rate-controlled single worker
             await sustained_worker(
-                client, base_url, api_key, config, audio_bytes,
-                audio_duration, response_format, counter, lock,
-                results, stop, 0, 0.0,
+                client,
+                base_url,
+                api_key,
+                config,
+                audio_bytes,
+                audio_duration,
+                response_format,
+                counter,
+                lock,
+                results,
+                stop,
+                0,
+                0.0,
             )
         else:
             # Concurrent: N workers simultaneously
             workers = [
                 asyncio.create_task(
                     concurrent_worker(
-                        i, client, base_url, api_key, audio_bytes,
-                        audio_duration, response_format, counter, lock,
-                        results, stop, 0, 0.0,
+                        i,
+                        client,
+                        base_url,
+                        api_key,
+                        audio_bytes,
+                        audio_duration,
+                        response_format,
+                        counter,
+                        lock,
+                        results,
+                        stop,
+                        0,
+                        0.0,
                     )
                 )
                 for i in range(config.concurrency)
@@ -599,10 +646,8 @@ def summarize(
         )
     if mem:
         lines.append(
-            
-                f"  Memory (MB):         start={mem[0]:.0f}"
-                f"  peak={max(mem):.0f}  end={mem[-1]:.0f}"
-            
+            f"  Memory (MB):         start={mem[0]:.0f}"
+            f"  peak={max(mem):.0f}  end={mem[-1]:.0f}"
         )
     lines.append("")
 
@@ -713,10 +758,7 @@ async def main() -> None:
 
     print(f"Compadre STT Load Test — {args.url}")
     print(f"Scenarios: {', '.join(c.name for c in to_run)}")
-    print(
-        f"Audio: {args.audio_duration}s"
-        f" | Format: {args.response_format}"
-    )
+    print(f"Audio: {args.audio_duration}s | Format: {args.response_format}")
     print(f"Seed: {args.seed} | Output: {output_dir.resolve()}")
 
     # Quick connectivity check
@@ -748,8 +790,11 @@ async def main() -> None:
         write_health_csv(output_dir / f"{config.name}_health.csv", health_samples)
 
         summary = summarize(
-            config.name, config.description,
-            metrics, health_samples, wall_time,
+            config.name,
+            config.description,
+            metrics,
+            health_samples,
+            wall_time,
         )
         all_summaries.append(summary)
         print(f"\n{summary}")
