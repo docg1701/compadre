@@ -1,8 +1,8 @@
 """Registry-backed API-key authentication.
 
 ``verify_api_key`` is the FastAPI dependency wired onto
-``POST /v1/audio/speech`` — it parses the bearer, shape-checks it
-against the ``cmpd_live_<43-char>`` contract, and delegates to
+``POST /v1/audio/transcriptions`` — it parses the bearer, shape-checks
+it against the ``cmpd_live_<43-char>`` contract, and delegates to
 ``verify_api_key_registry`` which runs the DB + cache lookup. Sets
 ``request.state.auth_payload`` on success; raises a ``CompadreError``
 subclass on any denial outcome.

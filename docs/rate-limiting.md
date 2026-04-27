@@ -22,9 +22,9 @@ Pseudo-flow for `POST /v1/audio/transcriptions`:
 verify_api_key(request)              → sets request.state.auth_payload
 check_rate_limit(request, response)  → limiter.hit(key:<key_id>, rpm)
     allowed?  True  → write X-RateLimit-* headers onto response,
-                      handler runs, TTS engine generates audio
+                      handler runs, STT engine transcribes audio
     allowed?  False → raise RateLimitError(retry_after, limit, remaining, reset)
-route handler (generate_speech)
+route handler (transcribe_audio)
 ```
 
 ## Bucket identity
@@ -86,7 +86,7 @@ Content-Type: application/json
 Notes:
 
 - `Retry-After` and the hint's "Try again in N seconds" are the same integer, derived from `X-RateLimit-Reset - now` (clamped to a minimum of 1). Clients can rely on either channel.
-- The TTS engine is not invoked on a 429. The per-replica FIFO queue is not touched.
+- The STT engine is not invoked on a 429. The per-replica FIFO queue is not touched.
 - The access log middleware still records the request so operators can observe the 429 rate per replica.
 
 ## `/health` policy

@@ -49,7 +49,7 @@ auth → rate-limit → acquire lock → ffmpeg decode (16 kHz mono PCM s16le WA
 | `beam_size` | `5` | Quality/speed trade-off |
 | `word_timestamps` | `True` | Enables `verbose_json`, `srt`, `vtt` formats |
 | `condition_on_previous_text` | `False` | Prevents hallucination cascades on long audio |
-| `language` | `pt` (default) | Brazilian Portuguese; auto-detect when omitted |
+| `language` | `pt` (default) | Brazilian Portuguese. Omitting the parameter uses this default; pass empty string or set env var to `""` for auto-detect. |
 | `cpu_threads` | `4` (env-configurable via `COMPADRE_WHISPER_CPU_THREADS`) | Matches 4 vCPU reference hardware |
 
 **Audio limits:**
@@ -92,9 +92,7 @@ Exceeding either limit returns HTTP 400.
   "engines": {
     "whisper": {
       "loaded": true,
-      "model": "large-v3-turbo",
-      "compute_type": "int8",
-      "cpu_threads": 4
+      "model": "large-v3-turbo"
     }
   },
   "queue_depth": 0,

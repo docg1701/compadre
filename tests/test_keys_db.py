@@ -401,7 +401,7 @@ def test_delete_customer_hard_rolls_back_when_audit_fails(
 
 
 def test_lookup_key_auth_uses_hash_index(registry_conn: sqlite3.Connection) -> None:
-    """Hot path on every POST /v1/audio/speech — must do an indexed seek on
+    """Hot path on every POST /v1/audio/transcriptions — must do an indexed seek on
     key_hash, not a table scan. A regression here would quadratically degrade
     auth latency as the registry grows."""
     plaintext, _, _ = seed_customer_and_key(registry_conn)

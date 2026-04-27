@@ -123,8 +123,8 @@ def test_src_compadre_has_no_raw_httpexception() -> None:
         "Use a CompadreError subclass from src/compadre/exceptions.py:\n"
         "  401 → AuthenticationError / ApiKey{NotFound,Suspended,Revoked}Error\n"
         "  400 → InvalidRequestError / InvalidTaxIdError\n"
-        "  404 → VoiceNotFoundError    429 → RateLimitError\n"
-        "  500 → GenerationError / KeyRegistryError    503 → ServiceUnavailableError\n"
+        "  429 → RateLimitError    503 → ServiceUnavailableError\n"
+        "  500 → CompadreError / KeyRegistryError\n"
         "To intentionally bypass: # scan-allow[no-raw-httpexception]: <reason>\n\n"
         "Violations:\n  " + "\n  ".join(v.render() for v in all_violations)
     )

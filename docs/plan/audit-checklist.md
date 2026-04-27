@@ -28,30 +28,33 @@
 
 ## Validation Results
 
-Run these grep commands after audit; expect **zero hits** on each:
+Run these grep commands after audit; expect **zero hits** on each in current docs (excludes historical documents: `compadre-brief.md`, `compadre-development-plan.md`, `checkpoint-*.md`; excludes plan documents which describe findings):
 
-| Command | Hits | Status |
-|---------|------|--------|
-| `grep -rni "kokoro\|qwen3\|qwen\b" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "espeak" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "/v1/audio/speech" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "DEFAULT_VOICE\|VOICES_DIR\|ESPEAK_DATA_PATH\|NOISE_DIR" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "KOKORO_\|QWEN3_\|ESPEAK_" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "src/comadre" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "TTS engine\|TTS generation\|TTS service\|TTS request\|speech synthesis\|text-to-speech\|generate.speech\|generated.audio" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "voice.*routing\|voice.*select\|voice.*cloning\|voice.*management\|voice.*profile" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md` | 0 | ✅ |
-| `grep -rni '"input".*:.*".*"' docs/api-reference.md docs/deployment-guide.md docs/local-testing-guide.md` | 0 | ✅ |
+| Command | Hits | Status | Notes |
+|---------|------|--------|-------|
+| `grep -rni "kokoro\|qwen3\|qwen\b" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | Historical docs (brief, dev-plan) preserve original text with banners |
+| `grep -rni "espeak" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | Historical docs preserve original text |
+| `grep -rni "/v1/audio/speech" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | Historical docs preserve original text |
+| `grep -rni "DEFAULT_VOICE\|VOICES_DIR\|ESPEAK_DATA_PATH\|NOISE_DIR" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni "KOKORO_\|QWEN3_\|ESPEAK_" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni "src/comadre" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni "TTS engine\|TTS generation\|TTS service\|TTS request\|speech synthesis\|text-to-speech\|generate.speech\|generated.audio" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni "voice.*routing\|voice.*select\|voice.*cloning\|voice.*management\|voice.*profile" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md` | 0 in current docs | ✅ | |
+| `grep -rni '"input".*:.*".*"' docs/api-reference.md docs/deployment-guide.md docs/local-testing-guide.md` | 0 | ✅ | No JSON body examples in STT docs |
 
 ---
 
 ## Discrepancies Found
 
 1. **AGENTS.md** referenced `service.py` (line 43) and file list included "service" — corrected to `stt.py` to match actual codebase.
-2. **monetization.md** still referenced `github.com/galvani4987/comadre` in privacy policy template — updated to `github.com/docg1701/compadre`.
+2. **monetization.md** still referenced `github.com/galvani4987/comadre` in privacy policy template — updated to `github.com/docg1701/compadre`. Also contained 14 instances of "Comadre" (missing 'p') in LGPD section — all corrected to "Compadre".
 3. **proxmox-vm-setup.md** claimed ARM was unsupported due to Qwen3 binary — corrected: faster-whisper supports ARM64, Oracle Ampere A1 is valid.
 4. **README.md** had no "Last updated" date — added.
 5. **deployment-guide.md** still referenced `compadre-audio-cleanup` cron — preserved as it may still exist in bootstrap (operator should verify).
+6. **api-architecture.md** and **api-reference.md** health response included `"compute_type"` and `"cpu_threads"` in `engines.whisper` — these fields do not exist in `src/compadre/health.py::build_health_response`. Removed from docs to match reality.
+7. **api-reference.md**, **api-architecture.md**, **local-testing-guide.md**, **configuration-reference.md**: "omit for auto-detect" for `language` was incorrect. Omitting the parameter uses the configured default (`pt`); auto-detect requires passing an empty string. Corrected in all four docs.
+8. **Source code stale references** (pre-existing, not doc-related): `exceptions.py` contained dead TTS classes `VoiceNotFoundError` and `GenerationError`; `main.py`, `rate_limit.py`, `keys/auth.py` contained stale `/v1/audio/speech` and TTS-specific comments. All fixed.
 
 ## Decisions Made
 

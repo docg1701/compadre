@@ -17,7 +17,7 @@ Compadre is configured via environment variables. All variables are loaded at st
 | `COMPADRE_WHISPER_MODEL_SIZE` | `large-v3-turbo` | faster-whisper model size. Only `large-v3-turbo` is supported in MVP. | `large-v3-turbo` |
 | `COMPADRE_WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute type for CPU inference. `int8` is the default for CPU-only deployments. | `int8` |
 | `COMPADRE_WHISPER_CPU_THREADS` | `4` | Number of CPU threads for Whisper inference (≥1). Matches 4 vCPU reference hardware. | `4` |
-| `COMPADRE_WHISPER_LANGUAGE` | `pt` | Default transcription language. ISO 639-1 code (`pt`, `en`, `es`, etc.). Set to empty string or omit for auto-detect. | `pt` |
+| `COMPADRE_WHISPER_LANGUAGE` | `pt` | Default transcription language. ISO 639-1 code (`pt`, `en`, `es`, etc.). Set to empty string for auto-detect. Omitting the env var uses `pt`. | `pt` |
 | `COMPADRE_HF_HOME` | `./data/cache/huggingface` | HuggingFace Hub cache directory for model auto-download. For air-gapped deployments, pre-seed this directory. | `/app/models` |
 | `MAX_UPLOAD_SIZE_MB` | `25` | Maximum audio upload size in megabytes (1–100). Enforced by FastAPI middleware and Caddy bounded-payload policy. | `25` |
 | `MAX_AUDIO_DURATION_SECONDS` | `600` | Maximum audio duration in seconds (≥1). Enforced by `ffprobe` before engine invocation. | `600` |

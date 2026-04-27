@@ -1,9 +1,10 @@
 """Tests for ``compadre.keys.auth.verify_api_key_registry`` (SECURITY-CRITICAL).
 
-The auth path on every ``POST /v1/audio/speech``. Each test defends a
-security property no integration test reliably catches: F18 cache-hit
-equalisation (timing-attack), DB-miss dummy compare (enumeration),
-status branches, fail-closed on DB error, no-PII-in-logs, non-ASCII safe.
+The auth path on every ``POST /v1/audio/transcriptions``. Each test
+defends a security property no integration test reliably catches: F18
+cache-hit equalisation (timing-attack), DB-miss dummy compare
+(enumeration), status branches, fail-closed on DB error,
+no-PII-in-logs, non-ASCII safe.
 """
 
 from __future__ import annotations

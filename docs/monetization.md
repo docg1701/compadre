@@ -88,7 +88,7 @@ Content-Type: application/json
 
 ## LGPD Operator Obligations
 
-Compadre 1.0.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Comadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Comadre primitive that discharges each one, and provides the runbook you fire on a breach.
+Compadre 1.0.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Compadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Compadre primitive that discharges each one, and provides the runbook you fire on a breach.
 
 The legal basis for processing is *"execução de contrato"* (Art. 7 V) — you collect the data exclusively to execute the API-access subscription. No secondary use, no data sharing, no profiling. The retention period is bounded by the commercial relationship plus the Brazilian commercial-law minimum (typically 5 years for fiscal records). Deletion is operator-driven via `compadre-keys delete-customer --hard`, never automatic.
 
@@ -96,18 +96,18 @@ The legal basis for processing is *"execução de contrato"* (Art. 7 V) — you 
 
 ### Controller identification (Art. 5 VI)
 
-You — the operator running Comadre — are the **data controller** under LGPD Art. 5 VI. Comadre is a tool you deploy on your infrastructure to execute that role. The PRD pins this explicitly: *"the operator is the LGPD data controller (Art. 5, VI). Comadre the software is a tool."*.
+You — the operator running Compadre — are the **data controller** under LGPD Art. 5 VI. Compadre is a tool you deploy on your infrastructure to execute that role. The PRD pins this explicitly: *"the operator is the LGPD data controller (Art. 5, VI). Compadre the software is a tool."*.
 
 Two practical consequences flow from that posture:
 
-1. **You publish your own privacy policy.** Comadre ships no privacy policy of its own. The §Privacy-policy template paragraph below is a structural starting point you adapt to your business; it is **not** a complete privacy policy and is **not** legal advice.
-2. **ANPD inquiries land on you, never on the Comadre project.** If the Autoridade Nacional de Proteção de Dados (ANPD) opens a procedure under Art. 55-A ff., the named controller is your business — your CNPJ, your responsible person, your contact email. The Comadre project is not a co-controller, not a joint processor, not a respondent.
+1. **You publish your own privacy policy.** Compadre ships no privacy policy of its own. The §Privacy-policy template paragraph below is a structural starting point you adapt to your business; it is **not** a complete privacy policy and is **not** legal advice.
+2. **ANPD inquiries land on you, never on the Compadre project.** If the Autoridade Nacional de Proteção de Dados (ANPD) opens a procedure under Art. 55-A ff., the named controller is your business — your CNPJ, your responsible person, your contact email. The Compadre project is not a co-controller, not a joint processor, not a respondent.
 
 The architecture predicts this section as the canonical home for the controller declaration. When you hand a privacy notice or compliance attestation to a customer or auditor, point them here.
 
 ### Data collected and retention
 
-Comadre's registry stores exactly four customer-level columns. Their purpose, at-rest protection, and retention window are:
+Compadre's registry stores exactly four customer-level columns. Their purpose, at-rest protection, and retention window are:
 
 | Field | Type | At-rest protection | Retention window |
 | --- | --- | --- | --- |
@@ -124,7 +124,7 @@ Comadre's registry stores exactly four customer-level columns. Their purpose, at
 
 ### Handling a data-subject access request (Art. 18 II and V)
 
-LGPD Art. 18 II/V guarantees the data subject the right to confirm processing exists and to access the data held. Comadre's primitive is `compadre-keys export-customer`:
+LGPD Art. 18 II/V guarantees the data subject the right to confirm processing exists and to access the data held. Compadre's primitive is `compadre-keys export-customer`:
 
 ```bash
 # 1. Identify the customer from the email / tax-ID they provided in the request.
@@ -155,7 +155,7 @@ The deploy-time operational reference for this command lives at `docs/deployment
 
 ### Handling a deletion request (Art. 18 VI)
 
-LGPD Art. 18 VI is the right to erasure (with the carveouts the law itself names — fiscal records, operator legitimate interest, etc.). Comadre's primitive is `compadre-keys delete-customer --hard`:
+LGPD Art. 18 VI is the right to erasure (with the carveouts the law itself names — fiscal records, operator legitimate interest, etc.). Compadre's primitive is `compadre-keys delete-customer --hard`:
 
 ```bash
 # 1. Confirm the subject's identity (same evidentiary posture as access; the customer's
@@ -387,8 +387,8 @@ Cite Lei 13.709/2018 Art. 48 §3 (the law's procedural wording) when counsel rev
 > **TEMPLATE — adapt to the specific incident and have your legal counsel review before sending.**
 
 ```text
-Assunto: Notificação de incidente de segurança — Comadre / {{operator-brand}}
-Subject: Security incident notification — Comadre / {{operator-brand}}
+Assunto: Notificação de incidente de segurança — Compadre / {{operator-brand}}
+Subject: Security incident notification — Compadre / {{operator-brand}}
 
 — Português —
 
@@ -483,7 +483,7 @@ Pre-fill these roles **at deployment time** so the incident-day operator has nam
 
 The block below is a **structural starting point** for the LGPD section of your own privacy policy. Adapt every placeholder; have your counsel review the final text before publishing it on your terms-of-service page. **This template is not legal advice.**
 
-> **Scope of this template.** Drafted for the assumed Comadre 2.0.0 customer profile — Brazilian legal entities (CNPJ-bearing) and natural persons of legal age (CPF-bearing) entering an API-subscription contract. **It does not cover Art. 14 (children and adolescents).** If your customer base may include minors — even as ancillary end-users behind a contracting entity — consult counsel for an Art. 14 addendum (parental consent flow, separate retention rules, narrower processing scope). Comadre's data model has no field that surfaces a minor, but the operator's deployment context determines applicability.
+> **Scope of this template.** Drafted for the assumed Compadre 1.0.0 customer profile — Brazilian legal entities (CNPJ-bearing) and natural persons of legal age (CPF-bearing) entering an API-subscription contract. **It does not cover Art. 14 (children and adolescents).** If your customer base may include minors — even as ancillary end-users behind a contracting entity — consult counsel for an Art. 14 addendum (parental consent flow, separate retention rules, narrower processing scope). Compadre's data model has no field that surfaces a minor, but the operator's deployment context determines applicability.
 
 ```text
 — Português —
@@ -492,7 +492,7 @@ Política de Privacidade — Tratamento de Dados Pessoais (LGPD)
 
 Para a prestação do serviço de assinatura de API, {{operator-legal-name}} (CNPJ {{operator-cnpj}}),
 doravante "controlador", coleta e trata os seguintes dados pessoais do titular: nome, e-mail e
-CPF/CNPJ. O tratamento ocorre por meio do software Comadre (https://github.com/docg1701/compadre),
+CPF/CNPJ. O tratamento ocorre por meio do software Compadre (https://github.com/docg1701/compadre),
 ferramenta auto-hospedada na infraestrutura do controlador. O CPF/CNPJ é armazenado criptografado em
 repouso por meio de algoritmo simétrico autenticado padrão de mercado (Fernet — AES + HMAC-SHA256).
 Nenhum outro dado pessoal é coletado: não há endereço,
@@ -519,7 +519,7 @@ Privacy Policy — Personal Data Processing (LGPD)
 
 To deliver the API subscription service, {{operator-legal-name}} (CNPJ {{operator-cnpj}}),
 hereinafter "the controller", collects and processes the following personal data of the subject:
-name, email, and Brazilian tax ID (CPF/CNPJ). Processing happens through the Comadre software
+name, email, and Brazilian tax ID (CPF/CNPJ). Processing happens through the Compadre software
 (https://github.com/docg1701/compadre), a self-hosted tool running on the controller's
 infrastructure. The tax ID is stored encrypted at rest using an industry-standard authenticated
 symmetric algorithm (Fernet — AES + HMAC-SHA256). No other personal data is collected — no

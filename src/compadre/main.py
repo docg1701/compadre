@@ -288,8 +288,8 @@ def _format_validation_error(exc: RequestValidationError) -> tuple[str, str]:
             _GENERIC_VALIDATION_HINT,
         )
     if err_type == "value_error":
-        # ``model_validator`` ValueErrors — already carry a tailored msg
-        # (e.g. the Qwen3 char-limit message). Surface verbatim.
+        # ``model_validator`` ValueErrors — already carry a tailored msg.
+        # Surface verbatim.
         return raw_msg or "Invalid request body", _GENERIC_VALIDATION_HINT
     if err_type == "json_invalid":
         return ("Malformed JSON body", _GENERIC_VALIDATION_HINT)
@@ -342,10 +342,7 @@ def _not_found_handler(request: Request, exc: Exception) -> JSONResponse:
 
     Without this handler, FastAPI returns ``{"detail": "Not Found"}`` which
     breaks the consistent ``{"error": {message, type, hint}}`` envelope used
-    everywhere else in the API. Shares the ``"not_found_error"`` type with
-    ``VoiceNotFoundError`` for shape consistency — unknown-path 404s and
-    voice-not-found 404s are both "resource not found," distinguished by
-    ``message`` and ``hint``.
+    everywhere else in the API.
     """
     method = _sanitize_for_reflection(request.method)
     path = _sanitize_for_reflection(request.url.path)
@@ -421,8 +418,7 @@ def create_app() -> FastAPI:
         # Apply X-RateLimit-* headers stashed by ``check_rate_limit``.
         # A dedicated middleware (not dependency-injected Response headers)
         # is the reliable channel because routes returning their own
-        # Response object — ``/v1/audio/speech`` serves audio bytes as a
-        # raw Response — replace the injected one, losing its headers.
+        # Response object replace the injected one, losing its headers.
         extra = getattr(request.state, "rate_limit_headers", None)
         if extra:
             for name, value in extra.items():

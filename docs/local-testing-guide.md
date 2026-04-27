@@ -158,12 +158,13 @@ curl -k -s https://localhost/v1/audio/transcriptions \
   -F "response_format=json"
 ```
 
-### Auto-detect (omit language)
+### Auto-detect (pass empty language)
 
 ```bash
 curl -k -s https://localhost/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
   -F "file=@test.opus" \
+  -F "language=" \
   -F "response_format=json"
 ```
 

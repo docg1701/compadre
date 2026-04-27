@@ -67,7 +67,7 @@ Plan 1 (Docs)
 | `src/compadre/api.py` | Transcription endpoint route handler |
 | `src/compadre/stt.py` | WhisperEngine (faster-whisper wrapper) |
 | `src/compadre/config.py` | Settings (pydantic-settings, RegistrySettings split) |
-| `src/compadre/exceptions.py` | CompadreError hierarchy + error envelope (⚠️ still contains stale TTS-specific errors: `VoiceNotFoundError`, `GenerationError`) |
+| `src/compadre/exceptions.py` | CompadreError hierarchy + error envelope |
 | `src/compadre/preprocessing.py` | Audio decode via ffmpeg → 16 kHz mono WAV |
 | `src/compadre/rate_limit.py` | Per-key RPM limiting (`MovingWindowRateLimiter`) |
 | `src/compadre/counters.py` | Per-replica request counters + snapshotting |

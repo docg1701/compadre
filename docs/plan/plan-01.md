@@ -164,7 +164,7 @@ grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md
   - Remove: `voices_local_dir`, `default_voice`, `kokoro_model_url`, `kokoro_voices_url`, `qwen3_enabled`, `qwen3_model_url`, `qwen3_tokenizer_url`, `qwen3_model_local`, `qwen3_tokenizer_local`
   - Add: `compadre_whisper_model_size` (default `large-v3-turbo`), `compadre_whisper_compute_type` (default `int8`), `compadre_whisper_cpu_threads` (default `4`), `compadre_whisper_language` (default `pt`), `compadre_hf_home`
   - Update variable descriptions table to match
-  - Remove Oracle Cloud Ampere A1 note (Qwen3 x86_64-only)
+  - Remove Oracle Cloud Ampere A1 note (x86_64-only restriction was Qwen3-specific; faster-whisper supports ARM64)
 - **Deployment flow section:**
   - Remove step 2 (`deploy-voices.yml`)
   - Update step 4 test curl: `POST /v1/audio/transcriptions` with `-F "file=@test.opus"` not `-d '{"input":"..."}'`
@@ -260,15 +260,14 @@ grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md
 **Current state:** Mostly registry/billing logic (engine-agnostic). Contains stale: `/v1/audio/speech` references (2 occurrences), `src/comadre/` source paths (6 occurrences), "TTS engine" reference (1), "Comadre" branding (several), privacy policy template references `github.com/galvani4987/comadre` (2). Also references "Comadre 2.0.0" and "Comadre's data model".
 
 **Changes:**
-- Line 3: `POST /v1/audio/speech` → `POST /v1/audio/transcriptions`
-- Line 34: `POST /v1/audio/speech` → `POST /v1/audio/transcriptions`
-- Line 64: "The TTS engine is never invoked on a 429" → "The STT engine is never invoked on a 429"
-- Line 123: `src/comadre/keys/audit.py` → `src/compadre/keys/audit.py` (2 occurrences in same paragraph)
-- Line 277: `src/comadre/keys/cli/commands/customers.py` → `src/compadre/keys/cli/commands/customers.py`
-- Lines 495, 523: `github.com/galvani4987/comadre` → `github.com/docg1701/compadre` (privacy policy template — Portuguese and English versions)
-- Lines 556-559 (References section): `src/comadre/keys/...` → `src/compadre/keys/...` (4 paths)
-- All "Comadre" brand references → "Compadre" (careful: privacy template is operator-owned LR copy, but the software name reference should update)
-- "Comadre 2.0.0" → "Compadre 1.0.0" (or current version)
+- `POST /v1/audio/speech` → `POST /v1/audio/transcriptions` (2 occurrences)
+- "The TTS engine is never invoked on a 429" → "The STT engine is never invoked on a 429"
+- `src/comadre/keys/audit.py` → `src/compadre/keys/audit.py` (2 occurrences)
+- `src/comadre/keys/cli/commands/customers.py` → `src/compadre/keys/cli/commands/customers.py`
+- `github.com/galvani4987/comadre` → `github.com/docg1701/compadre` (privacy policy template — Portuguese and English versions)
+- References section: `src/comadre/keys/...` → `src/compadre/keys/...` (4 paths)
+- All "Comadre" brand references → "Compadre" (privacy template software name references only; operator-owned wording stays Portuguese)
+- "Comadre 2.0.0" → "Compadre 1.0.0"
 - "Comadre's data model" → "Compadre's data model"
 - **Do NOT change:** LGPD privacy templates Portuguese/English wording (intentionally Portuguese for audience), `_FORBIDDEN_DETAIL_KEYS` content, billing logic
 - **Acceptance:** `grep -c "/v1/audio/speech\|src/comadre\|TTS engine" docs/monetization.md` returns zero. Only 1-2 "Comadre" references remain (if any, in historical context).

@@ -29,7 +29,7 @@ def _build_request(
     scope: dict[str, Any] = {
         "type": "http",
         "method": "POST",
-        "path": "/v1/audio/speech",
+        "path": "/v1/audio/transcriptions",
         "headers": raw_headers,
         "client": (client_host, 12345) if client_host else None,
         "app": SimpleNamespace(state=SimpleNamespace(rate_limiter=rate_limiter)),

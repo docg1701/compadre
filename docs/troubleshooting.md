@@ -287,22 +287,22 @@ Common issues with symptoms, causes, and resolution steps for both engines.
         name: compadre-models
     ```
 
-2. Check existing volumes: `docker volume ls | grep comadre`
+2. Check existing volumes: `docker volume ls | grep compadre`
 3. If volumes have wrong names, copy data to correctly named volumes and remove old ones
 
 ### Disk space
 
-**Symptom:** Service becomes slow or fails to generate audio. Disk usage warnings in health playbook.
+**Symptom:** Service becomes slow or fails to transcribe. Disk usage warnings in health playbook.
 
-**Cause:** Generated audio files accumulate over time.
+**Cause:** HuggingFace model cache or Docker logs consuming disk.
 
 **Resolution:**
 
 1. Check disk usage: `df -h /`
-2. Check audio volume size: `docker compose exec compadre-stt du -sh /audio`
-3. Verify the audio cleanup cron is active: `crontab -l | grep compadre-audio-cleanup`
-4. Expected: runs every 6 hours, deletes audio files older than 24 hours
-5. Manual cleanup: `docker compose exec compadre-stt find /audio -type f \( -name '*.ogg' -o -name '*.wav' \) -mmin +1440 -delete`
+2. Check model volume size: `docker compose exec compadre-stt du -sh /app/models`
+3. Check Docker log size: `docker system df -v | grep compadre`
+4. Prune old Docker logs if needed: `docker compose exec compadre-stt sh -c 'truncate -s 0 /var/log/* 2>/dev/null || true'`
+5. The bootstrap playbook installs log rotation (`max-size: 10m, max-file: 5` in compose.yaml)
 
 ## Log Format
 

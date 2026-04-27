@@ -1,8 +1,9 @@
 """Per-key rate limiting via the ``limits`` library.
 
-``/v1/audio/speech`` enforces one rate-limit bucket per API key, sourced
-from the registry row's ``rate_limit_rpm`` column. No per-IP bucket in the
-application — reverse-proxy (Caddy) handles any IP-level hygiene.
+``POST /v1/audio/transcriptions`` enforces one rate-limit bucket per API
+key, sourced from the registry row's ``rate_limit_rpm`` column. No per-IP
+bucket in the application — reverse-proxy (Caddy) handles any IP-level
+hygiene.
 
 Flow:
     verify_api_key (dependency)   → sets request.state.auth_payload
@@ -78,8 +79,8 @@ def get_client_ip(request: Request) -> str:
 # only when one IP exceeds 60 calls/minute, regardless of bearer
 # validity. Operator-overridable via env if a noisy monitoring agent
 # legitimately exceeds it. F20 — same per-IP bucket is reused on the
-# pre-auth surface of /v1/audio/speech so denied-key spam can't bypass
-# the per-key bucket (auth runs before per-key rate-limit).
+# pre-auth surface of /v1/audio/transcriptions so denied-key spam can't
+# bypass the per-key bucket (auth runs before per-key rate-limit).
 _HEALTH_PER_IP_LIMIT = "60/minute"
 _SPEECH_PER_IP_LIMIT = "600/minute"
 
@@ -150,8 +151,8 @@ async def check_rate_limit(request: Request) -> None:
     so ``apply_rate_limit_headers_middleware`` (in ``main.py``) can write
     ``X-RateLimit-*`` onto the outbound response. Stashing on state —
     not on an injected FastAPI ``Response`` — is deliberate: when the
-    route handler returns its own ``Response`` object (as ``/v1/audio/speech``
-    does for the audio bytes), FastAPI does NOT merge dependency-injected
+    route handler returns its own ``Response`` object, FastAPI does NOT merge
+    dependency-injected
     response headers onto the final response, so the middleware is the
     only reliable write channel.
 
