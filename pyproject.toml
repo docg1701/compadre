@@ -1,0 +1,84 @@
+[project]
+name = "compadre"
+version = "0.1.0"
+description = "Compadre Ouve Mensagem Por Áudio, Devolve Resposta Escrita — Self-hosted STT API: faster-whisper large-v3-turbo"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Galvani Filho", email = "galvani4987@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic-settings>=2.7",
+    "pydantic[email]>=2.9",
+    "faster-whisper>=1.1",
+    "python-dateutil>=2.9",
+    "python-multipart>=0.0.20",
+    "limits>=3.13",
+    "typer>=0.12",
+    "cryptography>=43.0",
+    "python-ulid>=2.2",
+    "validate-docbr>=2.0",
+    "cachetools>=5.3,<6",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+compadre-keys = "compadre.keys.cli.app:main"
+
+[build-system]
+requires = ["uv_build>=0.8.3,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    { include-group = "test" },
+    { include-group = "type-check" },
+    { include-group = "security" },
+]
+lint = ["ruff>=0.9", "pre-commit>=4.0"]
+test = ["pytest>=8.3", "pytest-asyncio>=0.25", "httpx>=0.28", "coverage>=7.6"]
+type-check = [
+    "mypy>=1.14",
+    "types-pyyaml>=6.0.12.20260408",
+]
+security = ["bandit>=1.8"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "C4", "PTH", "RUF"]
+ignore = []
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "faster_whisper.*",
+    "cachetools.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-m 'not non_regression'"
+markers = [
+    "slow: integration tests requiring model files",
+    "non_regression: CI non-regression suite (PRD Non-Regression Contract coverage; some tests spawn docker, others use ASGI TestClient)",
+]
+

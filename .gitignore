@@ -1,0 +1,70 @@
+#tmp shit
+tmp/
+
+# Runtime key registry (sqlite DB + WAL sidecars, created by `comadre-keys`)
+data/
+
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Ansible inventory (real credentials)
+deploy/ansible/inventory/production.yml
+deploy/ansible/inventory/oracle.yml
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Load test results (loadtest.py, capacity_test.py output dirs)
+tests/results/
+
+# Audio test files
+*.wav
+*.ogg
+*.mp3
+!voices/**/*.wav
+!noise/**/*.wav
+
+# Model cache
+models/
+*.onnx
+*.bin
+*.safetensors
+.pi/

@@ -1,0 +1,249 @@
+---
+# Comadre Cleanup Playbook — Full Decommission
+# Removes ALL Comadre artifacts AND system-level components installed by
+# bootstrap (Docker, UFW, apt repos, GPG keys). Returns the VPS to its
+# pre-bootstrap state.
+#
+#   ansible-playbook playbooks/cleanup.yml -i inventory/production.yml \
+#     -e "ansible_become_password=YOUR_SUDO_PASS"
+#
+# WARNING: This is destructive and irreversible. It removes containers,
+# images, volumes, cron jobs, ~/compadre, Docker Engine, UFW, and all
+# related system configuration.
+
+- name: Full Decommission — Compadre STT Service
+  hosts: compadre_vps
+  gather_facts: true
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Check Comadre directory exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir
+
+    # =========================================================================
+    # Stop and Remove Containers + Volumes (requires ~/compadre + Docker)
+    # =========================================================================
+
+    - name: "[TTS] Stop and remove containers, volumes, and images"
+      when: compadre_dir.stat.exists and compadre_dir.stat.isdir
+      community.docker.docker_compose_v2:
+        project_src: "~/compadre"
+        state: absent
+        remove_volumes: true
+        remove_images: all
+        remove_orphans: true
+      failed_when: false
+
+    # =========================================================================
+    # Prune Docker Artifacts
+    # =========================================================================
+
+    - name: "[Docker] Prune all unused images, networks, and build cache"
+      ansible.builtin.command:
+        cmd: docker system prune -a -f
+      changed_when: true
+      failed_when: false
+
+    # =========================================================================
+    # Remove Cron Jobs
+    # =========================================================================
+
+    - name: "[Cron] Remove daily restart cron"
+      ansible.builtin.cron:
+        name: "compadre-daily-restart"
+        state: absent
+
+    - name: "[Cron] Remove audio cleanup cron"
+      ansible.builtin.cron:
+        name: "compadre-audio-cleanup"
+        state: absent
+
+    - name: "[Cron] Remove daily suspension sweep"
+      ansible.builtin.cron:
+        name: "compadre-daily-suspension"
+        state: absent
+
+    - name: "[Cron] Remove nightly key-registry backup"
+      ansible.builtin.cron:
+        name: "compadre-keys-backup"
+        state: absent
+
+    # Marker files (registry.db.cron-installed, registry.db.backup-cron-installed)
+    # live inside the compadre-registry named volume, which the
+    # docker_compose_v2 task above destroyed via remove_volumes: true. The
+    # ~/compadre tree removal task below scrubs anything else.
+
+    - name: "[Cron] Remove CRON_TZ envvar"
+      ansible.builtin.cron:
+        name: "CRON_TZ"
+        env: true
+        state: absent
+
+    # =========================================================================
+    # Remove Project Directory
+    # =========================================================================
+
+    - name: "[Cleanup] Remove Comadre directory"
+      ansible.builtin.file:
+        path: "~/compadre"
+        state: absent
+
+    # =========================================================================
+    # Remove Docker Engine
+    # =========================================================================
+
+    - name: "[Docker] Stop Docker service"
+      become: true
+      ansible.builtin.systemd:
+        name: docker
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: "[Docker] Stop containerd service"
+      become: true
+      ansible.builtin.systemd:
+        name: containerd
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: "[Docker] Remove Docker packages"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: absent
+        purge: true
+      failed_when: false
+
+    - name: "[Docker] Remove Docker data directory"
+      become: true
+      ansible.builtin.file:
+        path: /var/lib/docker
+        state: absent
+
+    - name: "[Docker] Remove containerd data directory"
+      become: true
+      ansible.builtin.file:
+        path: /var/lib/containerd
+        state: absent
+
+    # =========================================================================
+    # Remove Docker APT Repository + GPG Key
+    # =========================================================================
+
+    - name: "[Docker] Remove Docker apt repository"
+      become: true
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}
+          {{ ansible_facts['distribution_release'] }} stable
+        state: absent
+        filename: docker
+
+    - name: "[Docker] Remove Docker GPG key"
+      become: true
+      ansible.builtin.file:
+        path: /etc/apt/keyrings/docker.asc
+        state: absent
+
+    # =========================================================================
+    # Remove Docker Group
+    # =========================================================================
+
+    - name: "[Docker] Remove docker group"
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: absent
+
+    # =========================================================================
+    # Remove UFW Firewall
+    # =========================================================================
+
+    - name: "[UFW] Disable firewall"
+      become: true
+      community.general.ufw:
+        state: disabled
+      failed_when: false
+
+    - name: "[UFW] Reset UFW rules"
+      become: true
+      community.general.ufw:
+        state: reset
+      failed_when: false
+
+    - name: "[UFW] Remove ufw package"
+      become: true
+      ansible.builtin.apt:
+        name: ufw
+        state: absent
+        purge: true
+      failed_when: false
+
+    # =========================================================================
+    # Clean Up Orphaned Dependencies
+    # =========================================================================
+
+    - name: "[Cleanup] Remove orphaned packages from Docker and UFW"
+      become: true
+      ansible.builtin.apt:
+        autoremove: true
+        purge: true
+      failed_when: false
+
+    # =========================================================================
+    # Remove GitHub from Known Hosts
+    # =========================================================================
+
+    - name: "[Git] Remove GitHub from known_hosts"
+      ansible.builtin.known_hosts:
+        name: github.com
+        state: absent
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Confirm full decommission"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Compadre STT Service — Full Decommission Complete
+          ============================================
+
+          Application artifacts removed:
+
+            ✓ Containers stopped and removed (compadre-stt replicas, caddy)
+            ✓ Docker volumes removed (models, voices, audio, caddy-data, caddy-config)
+            ✓ Docker images and build cache pruned
+            ✓ Cron jobs removed (daily-restart, audio-cleanup, daily-suspension, keys-backup, CRON_TZ)
+            ✓ ~/compadre directory removed
+
+          System-level components uninstalled:
+
+            ✓ Docker Engine removed (docker-ce, containerd, compose plugin)
+            ✓ Docker data directories removed (/var/lib/docker, /var/lib/containerd)
+            ✓ Docker apt repository and GPG key removed
+            ✓ Docker group removed
+            ✓ UFW firewall disabled and removed
+            ✓ GitHub SSH key removed from known_hosts
+
+          Kept (common system utilities): ca-certificates, curl, gnupg
+
+          The VPS is restored to its pre-bootstrap state.
+
+          To redeploy, run:
+            ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml
+
+          ============================================

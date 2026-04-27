@@ -1,0 +1,175 @@
+{
+	default_sni {$DOMAIN:localhost}
+}
+
+{$DOMAIN:localhost} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "microphone=(), camera=(), geolocation=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; media-src 'self' blob:; upgrade-insecure-requests; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+		-Via
+	}
+
+	# FR49 — bounded-payload policy for the @api surface (/v1/* and /health).
+	# Mirrors the industry-standard pattern used by AWS API Gateway,
+	# Cloudflare, and nginx's `client_max_body_size`: every API request MUST
+	# send a canonical Content-Length within the 1 MiB limit. Chunked
+	# transfers, missing Content-Length on write methods, and malformed
+	# Content-Length values are all rejected BEFORE reverse_proxy runs, so no
+	# oversized or malformed body ever reaches the upstream. Handle blocks
+	# are first-match-wins in Caddyfile order — keep the order below.
+	#
+	# Background: `request_body { max_size 1MiB }` paired with `reverse_proxy`
+	# silently truncates oversized bodies and forwards the prefix to upstream
+	# (empirically verified 2026-04-24 on caddy:2-alpine v2.11.2). That
+	# anti-pattern is eliminated here by rejecting every way a >1 MiB body
+	# could be sent at matcher time, before any reverse_proxy handler runs.
+	# `request_body` is therefore not needed and has been removed.
+
+	# B21 — every bounded-payload `respond` below ships the canonical
+	# CompadreError-shaped JSON envelope with `Content-Type: application/json`
+	# so the response is indistinguishable from app-level validation errors.
+	# `error` (which would defer to `handle_errors`) was tried but Caddy
+	# emits `text/plain` bodies for `error` even with `handle_errors` set,
+	# so each matcher owns its envelope inline. The site-level header block
+	# above re-applies HSTS / CSP / X-CT-O / X-Frame-Options on top.
+
+	# 1. Any Transfer-Encoding header on @api → 411 (force Content-Length).
+	# This API rejects ALL Transfer-Encoding values (chunked, gzip, identity,
+	# non-canonical extension tokens). The four-clause policy assumes every
+	# legitimate request is Content-Length-framed; stray TE values reach
+	# reverse_proxy with ambiguous framing otherwise (RFC-7230 §3.3.3).
+	# Mirrors AWS API Gateway / Cloudflare — neither accepts arbitrary TE.
+	@api_has_te {
+		path /v1/* /health
+		header Transfer-Encoding *
+	}
+	handle @api_has_te {
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Transfer-Encoding not permitted on /v1/* and /health; send Content-Length","type":"invalid_request_error","hint":"Use Content-Length framing for /v1/* and /health requests."}}` 411
+	}
+
+	# 2. Content-Length header present but not a canonical non-negative
+	# integer of 1-10 digits → 400. Guards the @api_oversized_body CEL
+	# `int()` cast against duplicate, negative, non-numeric, or overflow
+	# values that would otherwise error the expression and fall through to
+	# reverse_proxy. The 10-digit cap (max ~9.9 GB) is far above any
+	# legitimate @api payload (1 MiB limit) but bounded well under int64
+	# so the int() cast is always safe.
+	@api_malformed_cl {
+		path /v1/* /health
+		header Content-Length *
+		expression `!{http.request.header.content-length}.matches('^[0-9]{1,10}$')`
+	}
+	handle @api_malformed_cl {
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Malformed Content-Length header","type":"invalid_request_error","hint":"Send a single non-negative integer Content-Length within 1-10 digits."}}` 400
+	}
+
+	# 3. Valid Content-Length > 1 MiB → 413.
+	@api_oversized_body {
+		path /v1/* /health
+		header Content-Length *
+		expression `{http.request.header.content-length}.matches('^[0-9]{1,10}$') && int({http.request.header.content-length}) > 1048576`
+	}
+	handle @api_oversized_body {
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Payload too large","type":"invalid_request_error","hint":"Maximum request body size for /v1/* and /health is 1 MiB."}}` 413
+	}
+
+	# 4. Write method (POST/PUT/PATCH) with neither Content-Length nor
+	# Transfer-Encoding → 411. Prevents ambiguous zero-length writes that
+	# would otherwise be proxied opaquely.
+	@api_missing_cl {
+		path /v1/* /health
+		method POST PUT PATCH
+		not header Content-Length *
+		not header Transfer-Encoding *
+	}
+	handle @api_missing_cl {
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Content-Length header is required","type":"invalid_request_error","hint":"Use Content-Length framing for POST/PUT/PATCH requests on /v1/* and /health."}}` 411
+	}
+
+	# 5. API paths → tts-service (reverse proxy with rate-limit-aware XFF).
+	@api path /v1/* /health
+	handle @api {
+		reverse_proxy {
+			dynamic a {
+				name compadre-stt
+				port 8000
+				refresh 5s
+			}
+			lb_policy least_conn
+			trusted_proxies private_ranges
+			header_down -server
+			header_down -via
+		}
+	}
+
+	# Everything else → static landing page
+	handle {
+		root * /srv/www
+		file_server
+	}
+
+	# F67 — re-apply the security headers + Server/Via strip on Caddy-level
+	# error responses (404 from file_server, 405 from method_not_allowed,
+	# 411/413/etc. from the @api respond blocks above). Without this,
+	# Caddy's internal error path bypasses the site-level `header { ... }`
+	# middleware and ships error responses with the bare `Server: Caddy`
+	# banner and no security headers — empirically reproduced on
+	# caddy:2-alpine v2.11.2 in 2026-04-21 review work for Story 4.5a.
+	#
+	# F70 — also rewrites the body to the project's CompadreError-shaped
+	# JSON envelope so Caddy-level errors are indistinguishable from
+	# upstream-level errors at the API contract layer.
+	handle_errors {
+		header {
+			Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			Referrer-Policy "strict-origin-when-cross-origin"
+			Permissions-Policy "microphone=(), camera=(), geolocation=()"
+			Content-Security-Policy "default-src 'none'; upgrade-insecure-requests; frame-ancestors 'none'"
+			Content-Type "application/json"
+			-Server
+			-Via
+		}
+		# B19 — match upstream CompadreError ``error_type`` shapes per status
+		# class so JSON consumers don't need a special "is this from Caddy
+		# or from the app?" branch. ``not_found_error`` for 404 mirrors the
+		# FastAPI ``VoiceNotFoundError`` envelope; ``invalid_request_error``
+		# for 4xx-other and ``server_error`` for 5xx mirror the generic
+		# CompadreError taxonomy. The 404 case is the operator-visible one
+		# (``/docs`` disabled in production hits this path).
+		@cerr_404 expression {err.status_code} == 404
+		handle @cerr_404 {
+			respond `{"error":{"message":"{err.status_text}","type":"not_found_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_405 expression {err.status_code} == 405
+		handle @cerr_405 {
+			respond `{"error":{"message":"{err.status_text}","type":"invalid_request_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_4xx expression {err.status_code} >= 400 && {err.status_code} < 500
+		handle @cerr_4xx {
+			respond `{"error":{"message":"{err.status_text}","type":"invalid_request_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_5xx expression {err.status_code} >= 500
+		handle @cerr_5xx {
+			respond `{"error":{"message":"{err.status_text}","type":"server_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		respond `{"error":{"message":"{err.status_text}","type":"server_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

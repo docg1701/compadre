@@ -1,0 +1,93 @@
+---
+# Compadre Model Deployment Playbook
+# Ensures the Whisper model cache directory is ready in the compadre-models
+# Docker volume. The actual model (large-v3-turbo, ~1.5 GB) is downloaded
+# automatically by faster-whisper on first container start via
+# huggingface_hub.
+#
+#   ansible-playbook playbooks/deploy-models.yml -i inventory/production.yml
+#
+# Can be run independently of bootstrap/update: initial deploy, re-deploy after
+# volume loss, or to verify model cache integrity.
+# Entirely unprivileged — no become: true.
+
+- name: Prepare Whisper Model Cache
+  hosts: compadre_vps
+  gather_facts: true
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Check Compadre directory exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir
+
+    - name: "[Prereq] Verify Compadre is deployed"
+      ansible.builtin.assert:
+        that:
+          - compadre_dir.stat.exists
+          - compadre_dir.stat.isdir
+        fail_msg: >-
+          ~/compadre directory does not exist.
+          Run bootstrap.yml first to deploy the service.
+        success_msg: "Compadre directory found."
+
+    # =========================================================================
+    # Model Cache Directory
+    # =========================================================================
+
+    - name: "[Models] Ensure model cache directory exists in volume"
+      block:
+        - name: "[Models] Create helper container for volume access"
+          community.docker.docker_container:
+            name: compadre-volume-helper
+            image: alpine:3.21
+            command: "sh -c 'mkdir -p /models/hub'"
+            volumes:
+              - "compadre-models:/models"
+            state: started
+            auto_remove: false
+
+        - name: "[Models] Wait for container to finish"
+          community.docker.docker_container_info:
+            name: compadre-volume-helper
+          register: helper_info
+          until: >-
+            not (helper_info.container.State.Running | default(false))
+          retries: 10
+          delay: 1
+
+      always:
+        - name: "[Models] Remove helper container"
+          community.docker.docker_container:
+            name: compadre-volume-helper
+            state: absent
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Report model cache status"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Compadre — Whisper Model Cache Ready
+          ============================================
+
+          Model cache directory prepared in compadre-models volume:
+            /models/hub
+
+          The Whisper model (large-v3-turbo, ~1.5 GB) will be downloaded
+          automatically by faster-whisper on the next container start.
+
+          HF_HOME is set to /app/models in compose.yaml, which maps to
+          the compadre-models volume.
+
+          To force a fresh download, remove the cache and restart:
+            docker compose exec compadre-stt rm -rf /app/models/hub
+            docker compose restart compadre-stt
+
+          ============================================

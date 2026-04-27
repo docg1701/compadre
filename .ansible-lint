@@ -1,0 +1,8 @@
+---
+profile: production
+
+skip_list:
+  # Allow command/shell when necessary
+  - command-instead-of-module
+  # Allow running changed_when without explicit check
+  - no-changed-when

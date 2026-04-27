@@ -1,0 +1,91 @@
+all:
+  hosts:
+    compadre_vps:
+      # Oracle Cloud Ampere A1 (Always Free Tier) — aarch64 host
+      ansible_host: "CHANGE_ME"        # IP or DNS of the Oracle VM
+      ansible_user: "ubuntu"
+      ansible_ssh_private_key_file: "~/.ssh/CHANGE_ME.key"
+      ansible_ssh_common_args: "-o ForwardAgent=yes"
+
+  vars:
+    # Fernet key used to encrypt tax IDs at rest in the key registry (REQUIRED).
+    # Reads from COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY env var. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # In production, store inside an ansible-vault file rather than plain env.
+    key_registry_encryption_key: "{{ lookup('env', 'COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY') }}"
+
+    # Passphrase for AES-256 encryption of the nightly backup tarball (REQUIRED).
+    # Reads from COMPADRE_BACKUP_PASSPHRASE env var. Must be >= 16 chars; use
+    # 32+ for production. Store alongside KEY_REGISTRY_ENCRYPTION_KEY in your
+    # password manager — losing it means the backup tarballs are unreadable.
+    # Generate with:
+    #   python -c "import secrets; print(secrets.token_urlsafe(32))"
+    backup_passphrase: "{{ lookup('env', 'COMPADRE_BACKUP_PASSPHRASE') }}"
+
+    # Number of days to retain .tar.gz.enc backup archives in the registry
+    # volume before the nightly sweep deletes them. The backup cron runs at
+    # 02:00 operator TZ, so a 14-day retention gives ~14 nightly snapshots
+    # before rotation. Increase to 30+ for more forensic history; decrease
+    # to 7 to cap disk footprint.
+    backup_retention_days: 14
+
+    # Hour (0-23) the nightly backup cron fires in ``billing_timezone``. Default
+    # 02:00 leaves a comfortable 90-minute gap after the midnight suspension
+    # sweep (00:30) so the snapshot reflects the day's suspensions and runs
+    # well clear of any peak-hour traffic.
+    backup_hour: 2
+
+    # In-container path of the SQLite key registry. Single source of truth
+    # consumed by bootstrap.yml, health.yml, and ``compose.yaml`` (the latter
+    # via ``${KEY_REGISTRY_DB_PATH:-...}`` substitution). Marker files
+    # (``.cron-installed`` / ``.backup-cron-installed``) and the parent-dir
+    # chmod derive from this value via Jinja's ``| dirname`` filter, so any
+    # override must keep the path at least two components deep
+    # (``/x/y/registry.db``) — the ``[Prereq] Validate key_registry_db_path``
+    # assert in ``bootstrap.yml`` enforces this.
+    key_registry_db_path: /var/lib/compadre/registry.db
+
+    # Operator contact string shown in CLI error messages (e.g. your ops email).
+    operator_contact_hint: ""
+
+    # Optional: local directory containing kokoro/ subdir with voice files
+    voices_local_dir: "{{ playbook_dir }}/../../../voices"
+
+    # Git repository URL and branch to clone on the VM
+    repo_url: "git@github.com:docg1701/comadre.git"
+    repo_branch: "master"
+
+    # Default voice for TTS when none specified
+    default_voice: "kokoro/pm_santa"
+
+    # Real domain → Caddy provisions Let's Encrypt cert via ACME HTTP-01
+    domain: "CHANGE_ME.duckdns.org"
+
+    # Public landing page (true is the default — Oracle hosts are public-facing
+    # so the showcase page makes sense here)
+    landing_enabled: true
+
+    # IANA timezone the daily suspension sweep (00:30 local) runs in. MUST match
+    # the BILLING_TIMEZONE env var in .env — drift between the two silently
+    # shifts the sweep's "today" computation relative to the cron schedule.
+    #
+    # Default UTC for operator-neutral, internationally predictable billing.
+    # Override to a local zone (e.g. "America/Sao_Paulo") only when you have
+    # contractually informed customers that their paid_until day-turnover is
+    # interpreted in that specific zone — changing this value after customers
+    # are onboarded shifts when their keys flip to 401 on the billing day.
+    billing_timezone: "UTC"
+
+    # Kokoro model download URLs (auto-download on first startup)
+    kokoro_model_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+    kokoro_voices_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+
+    # Qwen3 disabled — the prebuilt qwen3-tts-cli binary is x86_64-only
+    # and cannot run on aarch64. Kokoro covers ~99% of real workload anyway.
+    qwen3_enabled: false
+    qwen3_model_url: ""
+    qwen3_tokenizer_url: ""
+
+    # Not used when qwen3_enabled is false
+    qwen3_model_local: ""
+    qwen3_tokenizer_local: ""

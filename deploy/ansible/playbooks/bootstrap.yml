@@ -1,0 +1,593 @@
+---
+# Compadre Bootstrap Playbook
+# Deploys Compadre STT service on a clean Ubuntu VPS with a single command:
+#   export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python -c \
+#     'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+#   ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
+#     -e "ansible_become_password=YOUR_SUDO_PASS"
+#
+# Idempotent: safe to run multiple times. Only tasks with actual changes
+# report as "changed".
+# Requires become password for: Docker, UFW installation.
+#
+# Customer API keys are issued after bootstrap with the compadre-keys CLI
+# (issue-key / update-key / rotate-key / revoke-key). The registry lives in
+# the compadre-registry named volume and is bind-mounted into the container
+# at /var/lib/compadre so the CLI and the service share one SQLite file.
+
+- name: Bootstrap Compadre STT Service
+  hosts: compadre_vps
+  gather_facts: true
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Verify target is Ubuntu/Debian"
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == "Debian"
+        fail_msg: >-
+          Unsupported OS family '{{ ansible_facts['os_family'] }}'.
+          Compadre requires Ubuntu or Debian.
+          Install on a supported distribution and retry.
+        success_msg: >-
+          OS family {{ ansible_facts['os_family'] }}
+          ({{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }})
+          is supported.
+
+    - name: "[Prereq] Verify SSH connectivity"
+      ansible.builtin.ping:
+
+    - name: "[Prereq] Validate key registry encryption key is configured"
+      ansible.builtin.assert:
+        that:
+          - key_registry_encryption_key | length > 0
+        fail_msg: >-
+          COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY environment variable is not set
+          or is empty. Generate a fresh Fernet key and export it before running
+          the playbook:
+          export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python -c
+          'from cryptography.fernet import Fernet;
+          print(Fernet.generate_key().decode())')"
+        success_msg: "Key registry encryption key is configured."
+
+    - name: "[Prereq] Validate backup passphrase is configured"
+      ansible.builtin.assert:
+        that:
+          - backup_passphrase | default('') | length >= 16
+        fail_msg: >-
+          COMPADRE_BACKUP_PASSPHRASE environment variable is not set or is
+          shorter than 16 characters. Generate a fresh passphrase with:
+          export COMPADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets;
+          print(secrets.token_urlsafe(32))')"
+        success_msg: "Backup passphrase is configured ({{ backup_passphrase | length }} chars)."
+
+    - name: "[Prereq] Validate repository URL is configured"
+      ansible.builtin.assert:
+        that:
+          - repo_url != 'CHANGE_ME'
+        fail_msg: >-
+          Repository URL is not configured.
+          Set repo_url in inventory/production.yml to your Git repository URL.
+        success_msg: "Repository URL is configured: {{ repo_url }}"
+
+    - name: "[Prereq] Validate key_registry_db_path"
+      # Inventory-supplied; absolute, ends in a filename, parent dir at
+      # least one level below filesystem root (/foo/bar.db is allowed,
+      # /bar.db is rejected). The latter guards against ``chmod 700 /``
+      # via the ``| dirname`` filter that the [FS] and [Cron] tasks use.
+      ansible.builtin.assert:
+        that:
+          - key_registry_db_path is defined
+          - key_registry_db_path is string
+          - key_registry_db_path.startswith('/')
+          - (key_registry_db_path | dirname) != '/'
+          - (key_registry_db_path | basename) | length > 0
+        fail_msg: >-
+          key_registry_db_path must be an absolute path with a parent
+          directory at least one level below ``/`` and a filename basename
+          (e.g. ``/var/lib/compadre/registry.db``). Got:
+          ``{{ key_registry_db_path | default('<undefined>') }}``.
+          Set key_registry_db_path in inventory/production.yml.
+        success_msg: "Key registry DB path is configured: {{ key_registry_db_path }}"
+
+    # =========================================================================
+    # Docker Installation
+    # =========================================================================
+
+    - name: "[Docker] Install prerequisite packages"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: "[Docker] Create keyrings directory"
+      become: true
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: "[Docker] Download Docker GPG key"
+      become: true
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: "[Docker] Add Docker apt repository"
+      become: true
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}
+          {{ ansible_facts['distribution_release'] }} stable
+        state: present
+        filename: docker
+
+    - name: "[Docker] Install Docker Engine"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: "[Docker] Add user to docker group"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+      register: docker_group_result
+
+    - name: "[Docker] Reset SSH connection for group changes"  # noqa: no-handler
+      when: docker_group_result.changed
+      ansible.builtin.meta:
+        reset_connection
+
+    # =========================================================================
+    # Firewall (UFW)
+    # =========================================================================
+
+    - name: "[UFW] Install ufw"
+      become: true
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: "[UFW] Allow SSH"
+      become: true
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: "[UFW] Allow HTTP"
+      become: true
+      community.general.ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: "[UFW] Allow HTTPS"
+      become: true
+      community.general.ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: "[UFW] Default deny incoming"
+      become: true
+      community.general.ufw:
+        default: deny
+        direction: incoming
+
+    - name: "[UFW] Default allow outgoing"
+      become: true
+      community.general.ufw:
+        default: allow
+        direction: outgoing
+
+    - name: "[UFW] Enable firewall"
+      become: true
+      community.general.ufw:
+        state: enabled
+
+    # =========================================================================
+    # SSH Hardening
+    # =========================================================================
+
+    - name: "[SSH] Suppress OS identifier from SSH banner"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-no-banner.conf
+        content: "DebianBanner no\n"
+        mode: "0644"
+      notify: restart sshd
+
+    # =========================================================================
+    # Git Clone
+    # =========================================================================
+
+    - name: "[Git] Add GitHub to known_hosts"
+      ansible.builtin.known_hosts:
+        name: github.com
+        key: >-
+          github.com ssh-ed25519
+          AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        state: present
+
+    - name: "[Git] Clone Compadre repository"
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "~/compadre"
+        version: "{{ repo_branch }}"
+        force: true
+        update: true
+
+    # Pre-volume-migration host artefacts: early Story 4.x bootstraps used a
+    # ``./data/keys`` host bind mount before the compadre-registry named volume
+    # took over. The directory is unreachable from inside the container today,
+    # so any markers / DB copies left behind are dead bytes that mislead a
+    # forensic reader. Removing them here is idempotent (state: absent on a
+    # missing path is a no-op) and keeps re-bootstrapped hosts physically
+    # consistent with fresh ones.
+    - name: "[Migrate] Scrub legacy host-side key registry directory"
+      ansible.builtin.file:
+        path: "~/compadre/data/keys"
+        state: absent
+
+    # =========================================================================
+    # Landing Page Toggle
+    # =========================================================================
+    # When landing_enabled is false, swap the committed Caddyfile (which serves
+    # the public homepage at /) for the API-only variant. The bind mount of
+    # ./deploy/landing in compose.yaml stays in place but is unused.
+
+    - name: "[Caddy] Use API-only Caddyfile (landing page disabled)"
+      when: not (landing_enabled | default(true) | bool)
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/caddy/Caddyfile-no-landing"
+        dest: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/caddy/Caddyfile"
+        remote_src: true
+        mode: "0644"
+
+    # =========================================================================
+    # Assets Deployment
+    # =========================================================================
+
+    - name: "[Assets] Create models directory in volume"
+      block:
+        - name: "[Assets] Create helper container for volume access"
+          community.docker.docker_container:
+            name: compadre-volume-helper
+            image: alpine:3.21
+            command: "sh -c 'mkdir -p /models'"
+            volumes:
+              - "compadre-models:/models"
+            state: started
+            auto_remove: false
+
+        - name: "[Assets] Wait for container to finish"
+          community.docker.docker_container_info:
+            name: compadre-volume-helper
+          register: helper_info
+          until: >-
+            not (helper_info.container.State.Running | default(false))
+          retries: 10
+          delay: 1
+
+      always:
+        - name: "[Assets] Remove helper container"
+          community.docker.docker_container:
+            name: compadre-volume-helper
+            state: absent
+
+    # =========================================================================
+    # Configuration
+    # =========================================================================
+
+    - name: "[Config] Create .env file"
+      ansible.builtin.copy:
+        dest: "~/compadre/.env"
+        content: |
+          KEY_REGISTRY_ENCRYPTION_KEY={{ key_registry_encryption_key }}
+          KEY_REGISTRY_DB_PATH={{ key_registry_db_path }}
+          BACKUP_PASSPHRASE={{ backup_passphrase }}
+          BILLING_TIMEZONE={{ billing_timezone | default('UTC') }}
+          OPERATOR_CONTACT_HINT={{ operator_contact_hint | default('') }}
+          DOMAIN={{ domain }}
+          WHISPER_MODEL_SIZE={{ whisper_model_size | default('large-v3-turbo') }}
+          WHISPER_COMPUTE_TYPE={{ whisper_compute_type | default('int8') }}
+          WHISPER_CPU_THREADS={{ whisper_cpu_threads | default(4) }}
+          WHISPER_LANGUAGE={{ whisper_language | default('pt') }}
+          HF_HOME={{ hf_home | default('/app/models') }}
+        mode: "0600"
+
+    # =========================================================================
+    # STT Service Build & Start
+    # =========================================================================
+
+    - name: "[STT] Build image and start service"
+      # recreate: always so that on a re-bootstrap, compadre-stt picks up any
+      # ``.env`` delta from THIS run (e.g. operator added BILLING_TIMEZONE,
+      # rotated KEY_REGISTRY_ENCRYPTION_KEY, swapped landing_enabled). With
+      # ``recreate: auto`` Compose only recreates when the config hash —
+      # image, env block, ports, volumes list — changes; ``.env`` value
+      # changes don't bump the hash because compose substitutes them into
+      # the same parsed environment block.
+      community.docker.docker_compose_v2:
+        project_src: "~/compadre"
+        state: present
+        build: always
+        recreate: always
+        remove_orphans: true
+
+    # =========================================================================
+    # File-Permission Enforcement (Story 4.4 — FR42, NFR13)
+    # =========================================================================
+    # Belt-and-braces on top of src/compadre/keys/db.py::_chmod_0600 +
+    # get_connection's parent.mkdir(mode=0o700). The Python connection
+    # layer already enforces these modes on every connection open; the
+    # tasks below make bootstrap.yml self-evidently FR42 / NFR13
+    # fulfilling without requiring the reader to inspect Python.
+    # Idempotent: chmod is a no-op when the mode already matches.
+    # The shell-out goes through ``docker compose exec`` because the
+    # registry path lives in a named Docker volume — host-side
+    # ``ansible.builtin.file:`` cannot reach it without docker-engine
+    # internals.
+
+    - name: "[FS] Wait for service lifespan to materialise registry.db"
+      # First-boot runs of the service download the Whisper model from
+      # HuggingFace before the FastAPI lifespan opens the first
+      # connection; the DB file only appears AFTER that. 150 × 2 s = 300 s
+      # absorbs a slow-link model pull without aborting bootstrap.
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt test -f {{ key_registry_db_path }}
+      register: db_present
+      retries: 150
+      delay: 2
+      until: db_present.rc == 0
+      changed_when: false
+
+    - name: "[FS] Enforce 0600 on registry.db"
+      # Primary DB file is REQUIRED — failure must surface loudly
+      # (previous ``bash -c '...; true'`` formulation silently masked
+      # permission-denied / wrong-uid / readonly-volume errors and
+      # reported green).
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt chmod 600 {{ key_registry_db_path }}
+      changed_when: false
+
+    - name: "[FS] Enforce 0600 on WAL/SHM sidecars (best-effort)"
+      # WAL and SHM sidecars only exist after the first write; tolerate
+      # their absence on a freshly-created DB with no write transaction.
+      # Only the ``[ -e "$f" ]`` branch chmods — every real failure for
+      # a present sidecar still surfaces.
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml exec -T compadre-stt bash -c
+          'for f in {{ key_registry_db_path }}-wal {{ key_registry_db_path }}-shm; do
+          if [ -e "$f" ]; then chmod 600 "$f"; fi; done'
+      changed_when: false
+
+    - name: "[FS] Enforce 0700 on registry parent directory"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt chmod 700 {{ key_registry_db_path | dirname }}
+      changed_when: false
+
+    # =========================================================================
+    # Cron Jobs
+    # =========================================================================
+
+    - name: "[Cron] Configure audio cleanup every 6 hours"
+      ansible.builtin.cron:
+        name: "compadre-audio-cleanup"
+        minute: "0"
+        hour: "*/6"
+        job: >-
+          cd ~/compadre &&
+          docker compose exec -T compadre-stt find /audio -type f
+          \( -name '*.ogg' -o -name '*.wav' \)
+          -mmin +1440 -delete 2>/dev/null
+          || logger -t compadre-cleanup 'audio cleanup failed — service may be down'
+
+    - name: "[Cron] Set CRON_TZ for billing-aware schedules"
+      ansible.builtin.cron:
+        name: "CRON_TZ"
+        env: true
+        value: "{{ billing_timezone | default('UTC') }}"
+
+    - name: "[Cron] Configure daily suspension sweep at 00:30 operator TZ"
+      ansible.builtin.cron:
+        name: "compadre-daily-suspension"
+        minute: "30"
+        hour: "0"
+        # /bin/bash -c + ``set -o pipefail`` so ``cmd | logger`` preserves the
+        # sweep's exit code (5 = DB error, 6 = config error). Cron's default
+        # POSIX /bin/sh pipeline returns the last-stage status (logger → 0),
+        # which would mask every sweep failure from cron's MTA. pipefail is a
+        # bash-ism — invoking /bin/bash explicitly is load-bearing.
+        job: >-
+          /bin/bash -c 'set -o pipefail;
+          cd ~/compadre &&
+          docker compose exec -T compadre-stt compadre-keys suspend-sweep 2>&1 |
+          logger -t compadre-suspension-sweep'
+
+    # The in-container ``compadre-keys health`` CLI cannot read the host's
+    # crontab, so we drop a marker file alongside the registry DB. The CLI
+    # stats the marker (``{KEY_REGISTRY_DB_PATH}.cron-installed``, see
+    # src/compadre/keys/cli/commands/system.py) to report the cron's
+    # installed status without shelling out to ``crontab -l``. The marker
+    # MUST live inside the compadre-registry named volume so it shares the
+    # same path the container reads from — host-side writes to
+    # ``~/compadre/data/keys/`` would be invisible because no bind mount
+    # connects that path to ``/var/lib/compadre`` (compose.yaml uses a
+    # named volume, not a bind). Write via ``docker compose exec`` so the
+    # bytes land in the volume directly.
+    - name: "[Cron] Write health marker for compadre-daily-suspension"
+      # ``umask 077`` BEFORE ``cat >`` makes the redirect *create* the file
+      # at mode 0600 — no window where a fresh marker exists at the
+      # container's default umask (typically 0644). The trailing
+      # ``chmod 600`` is required (not just belt-and-braces): on a
+      # re-bootstrap, ``cat >`` truncates an existing file in place and
+      # preserves its prior mode, so the explicit chmod is what enforces
+      # 0600 on stale markers. ``set -e`` makes a failed ``cat`` (e.g.
+      # disk full mid-write) abort before chmod, so a half-written marker
+      # can never claim the cron is installed when it isn't.
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T compadre-stt bash -c
+          'set -e; umask 077;
+          cat > {{ key_registry_db_path }}.cron-installed;
+          chmod 600 {{ key_registry_db_path }}.cron-installed'
+        chdir: "~/compadre"
+        stdin: |
+          schedule=30 0 * * *
+          cron_tz={{ billing_timezone | default('UTC') }}
+      changed_when: true
+
+    # B16 — write backup passphrase to a host env file so the cron job
+    # can source it without ansible-playbook on the VPS. The previous
+    # cron line invoked ``ansible-playbook`` (not installed on the VPS)
+    # against a path on the operator's laptop (not present on the VPS),
+    # so the nightly backup never fired. The new design mirrors the
+    # suspension-sweep cron: a tiny shell line that ``docker compose
+    # exec``s a binary baked into the image.
+    - name: "[Cron] Ensure /etc/compadre exists for backup env file"
+      become: true
+      ansible.builtin.file:
+        path: /etc/compadre
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: "[Cron] Write backup passphrase to /etc/compadre/backup-env"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/compadre/backup-env
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+        # Single-line ``KEY=value`` — ``set -a; source FILE; set +a`` in
+        # the cron line exports it to the docker exec environment.
+        content: |
+          BACKUP_PASSPHRASE={{ backup_passphrase }}
+      no_log: true
+
+    - name: "[Cron] Configure nightly key-registry backup at 02:00 operator TZ"
+      ansible.builtin.cron:
+        name: "compadre-keys-backup"
+        minute: "0"
+        hour: "{{ backup_hour | default(2) }}"
+        # B16 — self-contained cron: source the passphrase env, then
+        # docker exec the script baked into the image at
+        # ``/usr/local/bin/compadre-keys-backup`` (Dockerfile, B16 patch).
+        # Mirrors the suspension-sweep cron pattern exactly: no ansible
+        # on the VPS, no operator laptop paths, no script piping. The
+        # ``-e BACKUP_PASSPHRASE`` form (no ``=value``) tells docker to
+        # pull from the calling shell's env, keeping the secret out of
+        # ``/proc/<pid>/cmdline``.
+        job: >-
+          /bin/bash -c 'set -o pipefail;
+          set -a; . /etc/compadre/backup-env; set +a;
+          cd ~/compadre &&
+          docker compose exec -T
+          -e BACKUP_PASSPHRASE
+          -e BACKUP_RETENTION_DAYS={{ backup_retention_days | default(14) }}
+          compadre-stt compadre-keys-backup 2>&1 |
+          logger -t compadre-keys-backup'
+
+    # Backup-cron marker — same in-container write contract as the
+    # suspension-sweep marker above. Read by ``compadre-keys health``'s
+    # Backup-cron row (Story 4.3 + 4.4). The "Last backup" freshness row
+    # is fed by the ``*.backup-*.tar.gz.enc`` glob, not by this marker.
+    - name: "[Cron] Write health marker for compadre-keys-backup"
+      # ``set -e; umask 077; cat > FILE; chmod 600 FILE`` — same 0600
+      # contract as the suspension-sweep marker above (umask handles
+      # creates, chmod handles truncate-in-place rewrites).
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T compadre-stt bash -c
+          'set -e; umask 077;
+          cat > {{ key_registry_db_path }}.backup-cron-installed;
+          chmod 600 {{ key_registry_db_path }}.backup-cron-installed'
+        chdir: "~/compadre"
+        stdin: |
+          schedule=0 {{ backup_hour | default(2) }} * * *
+          cron_tz={{ billing_timezone | default('UTC') }}
+          retention_days={{ backup_retention_days | default(14) }}
+      changed_when: true
+
+    # =========================================================================
+    # Health Check
+    # =========================================================================
+
+    - name: "[Health] Wait for service to become healthy"
+      ansible.builtin.uri:
+        url: "https://{{ domain | default('localhost') }}/health"
+        validate_certs: false
+        return_content: true
+      register: health_check
+      until: >-
+        health_check.status == 200
+        and (health_check.json.status | default('')) == "healthy"
+      retries: 180
+      delay: 10
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Report deployment status"
+      vars:
+        hc: "{{ health_check.json | default({}) }}"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Compadre STT Service — Bootstrap Complete
+          ============================================
+
+          Service Status:  {{ hc.status | default('unknown') }}
+          Loaded Models:   {{ hc.models | default([]) | join(', ') }}
+          Model Count:     {{ hc.models | default([]) | length }}
+          HTTPS URL:       https://{{ ansible_host }}
+          UFW:             Active (22, 80, 443)
+          Suspension sweep: 00:30 {{ billing_timezone | default('UTC') }} (cron, zero-touch)
+
+          First-run sanity check — verify overall registry health:
+            docker compose exec compadre-stt compadre-keys health
+
+          Next steps — issue a customer API key from the host:
+            docker compose exec compadre-stt compadre-keys create-customer \
+              --name "Acme" --tax-id "12345678000199"
+            docker compose exec compadre-stt compadre-keys issue-key \
+              --customer <customer-id> --rpm 30 --price 149.00  # BRL/month
+
+          Then test the returned key (shown once at issuance):
+          curl -k -X POST \
+            -H "Authorization: Bearer <issued-key>" \
+            -H "Content-Type: application/json" \
+            https://{{ ansible_host }}/v1/audio/transcriptions \
+            -d '{"input":"Olá mundo","voice":"kokoro/pm_santa"}' \
+            --output test.ogg
+
+          ============================================
+
+  handlers:
+    - name: restart sshd
+      become: true
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

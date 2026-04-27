@@ -1,0 +1,282 @@
+---
+# Comadre Key-Registry Restore Playbook (Story 4.3 — FR41, NFR21)
+#
+# Restores a previously-captured ``{KEY_REGISTRY_DB_PATH}.backup-*.tar.gz.enc``
+# archive onto the live key registry. The service is stopped briefly during
+# the DB-file swap so WAL sidecars don't straddle the boundary, then
+# restarted and polled until ``/health`` reports healthy.
+#
+#   export COMPADRE_BACKUP_PASSPHRASE="<passphrase used at backup time>"
+#   ansible-playbook playbooks/restore-keys.yml -i inventory/production.yml \
+#     -e "ansible_become_password=YOUR_SUDO_PASS
+#         backup_file=/var/lib/compadre/registry.db.backup-<ts>.tar.gz.enc"
+#
+# The ``backup_file`` argument is REQUIRED. It is the container-side path
+# to the archive (inside the compadre-registry named volume). No auto-
+# discovery — passing the path explicitly is a Destroy-tier UX safeguard.
+#
+# This playbook is IDEMPOTENT: running it twice with the same ``backup_file``
+# produces the same end state (same DB bits, mode 0600, WAL mode on).
+#
+# If the archived encryption key differs from the live ``.env`` value
+# (common after ``rotate-encryption-key``), the playbook WARNS and echoes
+# the archived key. It never writes to ``.env`` — the operator is in the
+# loop for that swap.
+
+- name: Restore Comadre key registry
+  hosts: compadre_vps
+  gather_facts: false
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Verify SSH connectivity"
+      ansible.builtin.ping:
+
+    - name: "[Prereq] Validate backup_file argument"
+      ansible.builtin.assert:
+        that:
+          - backup_file is defined
+          - backup_file | length > 0
+        fail_msg: >-
+          Pass the path to a backup archive:
+          ansible-playbook restore-keys.yml -e "backup_file=/var/lib/compadre/registry.db.backup-<ts>.tar.gz.enc ..."
+        success_msg: "Restoring from {{ backup_file }}"
+
+    - name: "[Prereq] Validate backup passphrase is configured"
+      ansible.builtin.assert:
+        that:
+          - backup_passphrase | default('') | length >= 16
+        fail_msg: >-
+          COMPADRE_BACKUP_PASSPHRASE environment variable is not set or is
+          shorter than 16 characters. Export the passphrase that was used
+          to create the archive.
+
+    - name: "[Prereq] Verify ~/compadre exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir_stat
+
+    - name: "[Prereq] Fail if ~/compadre is missing"
+      ansible.builtin.assert:
+        that:
+          - compadre_dir_stat.stat.exists
+          - compadre_dir_stat.stat.isdir
+        fail_msg: "~/compadre directory not found. Bootstrap must run first."
+
+    - name: "[Prereq] Verify compadre-stt container is running"
+      ansible.builtin.command:
+        cmd: docker compose ps -q compadre-stt
+        chdir: "~/compadre"
+      register: tts_service_ps
+      changed_when: false
+      failed_when: tts_service_ps.stdout | length == 0
+
+    # F4 — backup_file is operator-supplied via ``-e backup_file=...`` and
+    # must NEVER be interpolated raw into a shell command. Pass it through
+    # an environment variable so the container script reads ``$BACKUP_FILE``
+    # via shell parameter expansion (parameter substitution is not subject
+    # to word-splitting / glob expansion the way `"{{ ... }}"` is). This
+    # closes the command-injection surface even under operator-in-the-loop
+    # disaster-recovery flows where a hostile ``-e backup_file=...$(rm -rf
+    # /);echo`` could otherwise execute.
+    - name: "[Prereq] Verify backup archive is readable inside container"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T -e BACKUP_FILE={{ backup_file | quote }}
+          compadre-stt bash -c
+          'test -r "$BACKUP_FILE" && echo ok'
+        chdir: "~/compadre"
+      register: archive_readable
+      changed_when: false
+      failed_when: archive_readable.stdout | trim != "ok"
+      # No passphrase needed yet — this task only checks readability.
+      # restore-stage.sh below is the consumer that actually decrypts.
+
+    # =========================================================================
+    # Decrypt, Verify, Stage (while service is still running)
+    # =========================================================================
+    #
+    # Stage directory is inside the named volume at
+    # ``/var/lib/compadre/.restore-staging/`` so it survives across
+    # ``docker compose exec`` calls and is visible to the helper container
+    # that performs the swap after the service stops.
+
+    # F6 — script body lives in deploy/ansible/scripts/restore-stage.sh;
+    # piped into ``bash -s`` inside the container. ``$BACKUP_FILE`` is
+    # passed via -e so the script reads it via shell parameter expansion
+    # (F4 — no raw jinja interpolation into a shell command).
+    - name: "[Stage] Decrypt + untar + integrity-check"
+      # BACKUP_PASSPHRASE is passed per-invocation (mirrors backup-keys.yml's
+      # decision); it is the script's PBKDF2 input. Forwarded via the
+      # name-only ``-e BACKUP_PASSPHRASE`` form so the value stays in the
+      # docker CLI's env (set via ansible ``environment:``) rather than
+      # landing in argv / /proc/<pid>/cmdline. ``BACKUP_FILE`` is not
+      # secret, so the inline ``-e BACKUP_FILE=<path>`` form is fine.
+      ansible.builtin.shell:
+        cmd: >-
+          docker compose exec -T
+          -e BACKUP_FILE={{ backup_file | quote }}
+          -e BACKUP_PASSPHRASE
+          compadre-stt bash -s
+        chdir: "~/compadre"
+        stdin: "{{ lookup('file', playbook_dir + '/../scripts/restore-stage.sh') }}"
+      environment:
+        BACKUP_PASSPHRASE: "{{ backup_passphrase }}"
+      register: stage_result
+      changed_when: true
+      no_log: true
+
+    - name: "[Stage] Detect archived-vs-live key divergence"
+      ansible.builtin.set_fact:
+        key_diverges: "{{ 'KEY_DIVERGES' in stage_result.stdout }}"
+        archived_key_line: >-
+          {{ stage_result.stdout_lines
+             | select('match', '^ARCHIVED_KEY=')
+             | list | first | default('') }}
+
+    # =========================================================================
+    # Stop Service
+    # =========================================================================
+
+    - name: "[Service] Stop compadre-stt"
+      community.docker.docker_compose_v2:
+        project_src: "~/compadre"
+        services:
+          - compadre-stt
+        state: stopped
+
+    # =========================================================================
+    # DB Swap (helper container — compadre-stt is stopped)
+    # =========================================================================
+    #
+    # Uses the alpine helper-container pattern proven in
+    # ``bootstrap.yml:227-251`` (voice deployment). The compadre-registry
+    # volume is mounted at /var/lib/compadre and a single ``sh -c`` script:
+    #   1. Removes stale WAL/SHM sidecars (invalidated by the swap).
+    #   2. Moves the staged registry.db into place.
+    #   3. chmod 0600 (NFR13).
+    # WAL mode re-verification is deferred to the service-start step; the
+    # compadre-stt container's ``get_connection`` already enforces
+    # ``journal_mode=WAL`` on every open.
+
+    - name: "[Restore] Swap DB file via helper container"
+      block:
+        - name: "[Restore] Remove stale helper container from prior run"
+          community.docker.docker_container:
+            name: compadre-restore-helper
+            state: absent
+
+        # F6 — script body lives in deploy/ansible/scripts/restore-swap.sh.
+        # The alpine helper container runs ``sh -c "$(cat ... | base64 -d)"``
+        # — passing the script content through a base64 round-trip
+        # sidesteps the docker_container ``command`` field's quoting layer
+        # without re-introducing the inline jinja blob.
+        - name: "[Restore] Create helper container for volume access"
+          community.docker.docker_container:
+            name: compadre-restore-helper
+            image: alpine:3.21
+            command:
+              - "sh"
+              - "-c"
+              - "{{ lookup('file', playbook_dir + '/../scripts/restore-swap.sh') }}"
+            volumes:
+              - "compadre-registry:/var/lib/compadre"
+            state: started
+            auto_remove: false
+
+        - name: "[Restore] Wait for helper container to finish"
+          community.docker.docker_container_info:
+            name: compadre-restore-helper
+          register: helper_info
+          until: >-
+            helper_info.container.State.Status | default('') == 'exited'
+          retries: 60
+          delay: 1
+
+        - name: "[Restore] Verify helper container exit code"
+          ansible.builtin.assert:
+            that:
+              - helper_info.container.State.ExitCode == 0
+            fail_msg: >-
+              DB-swap helper container exited non-zero.
+              Inspect with: docker logs compadre-restore-helper
+
+      always:
+        - name: "[Restore] Remove helper container"
+          community.docker.docker_container:
+            name: compadre-restore-helper
+            state: absent
+
+    # =========================================================================
+    # Restart Service + Health Wait
+    # =========================================================================
+
+    - name: "[Service] Start compadre-stt"
+      community.docker.docker_compose_v2:
+        project_src: "~/compadre"
+        state: present
+
+    - name: "[Health] Wait for service to become healthy"
+      # Poll the docker-internal upstream rather than the public Caddy URL.
+      # This sidesteps Caddy bind quirks on hosts where 443 is not listening
+      # on localhost and removes the validate_certs=false TLS shortcut.
+      #
+      # B24 — `wget` is not in the slim compadre-stt image (same shape as B23).
+      # Use the bundled Python interpreter (always present, used to run the
+      # FastAPI app) to avoid adding a CLI HTTP client to the container.
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T compadre-stt
+          python3 -c "import sys, urllib.request;
+          sys.stdout.write(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"
+        chdir: "~/compadre"
+      register: health_check
+      changed_when: false
+      failed_when: false
+      until: >-
+        health_check.rc == 0
+        and ('"status":' in health_check.stdout)
+        and ('"healthy"' in health_check.stdout
+             or '"status":"healthy"' in (health_check.stdout | replace(' ', '')))
+      retries: 180
+      delay: 10
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Report restore status"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Comadre Key-Registry Restore — Complete
+          ============================================
+
+          Archive:        {{ backup_file }}
+          Service:        healthy
+          Key divergence: {{ 'YES — action required below' if key_diverges else 'no (archived key matches live .env)' }}
+
+          {% if key_diverges %}
+          WARNING: The archive's encryption key differs from the current
+          ``.env`` value. tax_id ciphertexts in the restored DB were
+          encrypted under the archived key and will NOT decrypt under the
+          live key until ``.env`` is updated.
+
+          {{ archived_key_line }}
+
+          To complete the restore, on the host:
+            1. Edit ~/compadre/.env — replace KEY_REGISTRY_ENCRYPTION_KEY
+               with the ARCHIVED_KEY value printed above.
+            2. docker compose restart compadre-stt
+
+          Until that swap, ``compadre-keys export-customer`` will fail with
+          ``InvalidToken`` on every row.
+          {% endif %}
+
+          Post-restore smoke check:
+            docker compose exec compadre-stt compadre-keys list-customers | head
+
+          ============================================

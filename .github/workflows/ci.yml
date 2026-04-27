@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (ffmpeg)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+          if docker info &>/dev/null; then
+            echo "Docker daemon is running"
+          else
+            echo "::warning::Docker daemon not accessible — non-regression tests that need Docker will skip"
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group test
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy src/
+
+      - name: Run tests
+        run: uv run pytest --tb=short -q -m "not slow"
+
+      - name: Teardown non-regression containers
+        if: always()
+        run: |
+          ids=$(docker ps -aq --filter label=compadre-non-regression 2>/dev/null || true)
+          if [ -n "$ids" ]; then docker rm -f $ids 2>/dev/null || true; fi
+          docker network rm compadre-non-regression-net 2>/dev/null || true

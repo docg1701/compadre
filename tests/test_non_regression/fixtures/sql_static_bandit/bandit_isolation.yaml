@@ -1,0 +1,10 @@
+# Sentinel bandit config — passed via `bandit -c <this-file>` to short-circuit
+# bandit's auto-discovery of any `[tool.bandit]` section in pyproject.toml or
+# `.bandit` file at project root. A future skips/exclude entry there must not
+# be able to silently neuter the B608 gate.
+#
+# bandit.core.config.BanditConfig requires the YAML to parse as a dict (not
+# null). An empty profiles map is the minimal accepted shape — no plugins
+# listed means defaults; -t B608 on the CLI still narrows the scan as the
+# test contract requires.
+profiles: {}

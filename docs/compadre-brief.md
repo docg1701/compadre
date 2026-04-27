@@ -24,7 +24,7 @@ You will start from the **100%-validated, security-reviewed Comadre commit** (th
 
 The following Comadre subsystems must be preserved with **no behavioral changes** beyond renaming to the Compadre brand:
 
-- `src/comadre/keys/` — entire key registry, `comadre-keys` CLI (rename to `compadre-keys`), encrypted SQLite, customer/key lifecycle, billing verbs (`mark-paid`, `suspend`, `reactivate`, `at-risk`, `revenue`, `suspend-sweep`, `health`), LGPD verbs (`export-customer`, `delete-customer --hard`), encryption-key rotation, nightly encrypted backups, ansible health playbook
+- `src/comadre/keys/` — entire key registry, `compadre-keys` CLI (rename to `compadre-keys`), encrypted SQLite, customer/key lifecycle, billing verbs (`mark-paid`, `suspend`, `reactivate`, `at-risk`, `revenue`, `suspend-sweep`, `health`), LGPD verbs (`export-customer`, `delete-customer --hard`), encryption-key rotation, nightly encrypted backups, ansible health playbook
 - `src/comadre/config.py` — pydantic-settings pattern, env var conventions
 - `src/comadre/logging_config.py` — pipe-delimited structured logging
 - `src/comadre/exceptions.py` — `ComadreError` hierarchy (rename to `CompadreError`); same `status_code` / `error_type` / `hint` contract
@@ -108,7 +108,7 @@ response_format=text         (optional; default text)
 temperature=0                (accept for compat; ignored in MVP)
 ```
 
-Key prefix: `cmpd_live_...` (Compadre brand; mirrors Comadre's `cmdr_live_...`).
+Key prefix: `cmpd_live_...` (Compadre brand; mirrors Comadre's `cmpd_live_...`).
 
 Health endpoint: `GET /health` — same contract as Comadre.
 
@@ -209,7 +209,7 @@ Before writing any code, read fully:
 - CLI binary: `compadre-keys`
 - Key prefix: `cmpd_live_` (test prefix `cmpd_test_` if Comadre uses an analogous test prefix)
 - Env var prefix: `COMPADRE_` (mirror Comadre's `COMADRE_` convention)
-- Docker service names: `compadre-stt` (vs Comadre's `tts-service`), `caddy`
+- Docker service names: `compadre-stt` (vs Comadre's `compadre-stt`), `caddy`
 - Registry DB env var: `KEY_REGISTRY_DB_PATH` (keep variable name — same registry contract; only the deployed value differs)
 - Tagline (recursive acronym, mirrors Comadre's pattern): **Compadre Ouve Mensagem Por Áudio, Devolve Resposta Escrita** (Comadre = "Comadre Manda Áudio Direto, Rápido e Eficiente").
 

@@ -1,0 +1,100 @@
+{
+	default_sni {$DOMAIN:localhost}
+}
+
+{$DOMAIN:localhost} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "microphone=(), camera=(), geolocation=()"
+		Content-Security-Policy "default-src 'none'; upgrade-insecure-requests; frame-ancestors 'none'"
+		-Server
+		-Via
+	}
+
+	# FR49 — bounded-payload policy (mirrors the with-landing Caddyfile).
+	# No `path` scoping here because the entire site is the API surface.
+	# See deploy/caddy/Caddyfile for the full rationale and handle-order
+	# contract. `request_body max_size` removed: with chunked, malformed,
+	# missing, and oversized all rejected at matcher time, there is no way
+	# for a >1 MiB body to reach reverse_proxy.
+
+	# 1. Any Transfer-Encoding header → 411 (force Content-Length).
+	@api_has_te {
+		header Transfer-Encoding *
+	}
+	handle @api_has_te {
+		respond "Transfer-Encoding not permitted; send Content-Length" 411
+	}
+
+	# 2. Malformed Content-Length (non-numeric, >10 digits, duplicate) → 400.
+	@api_malformed_cl {
+		header Content-Length *
+		expression `!{http.request.header.content-length}.matches('^[0-9]{1,10}$')`
+	}
+	handle @api_malformed_cl {
+		respond "malformed Content-Length header" 400
+	}
+
+	# 3. Valid Content-Length > 1 MiB → 413.
+	@api_oversized_body {
+		header Content-Length *
+		expression `{http.request.header.content-length}.matches('^[0-9]{1,10}$') && int({http.request.header.content-length}) > 1048576`
+	}
+	handle @api_oversized_body {
+		respond "Payload Too Large" 413
+	}
+
+	# 4. Write method without body-framing → 411.
+	@api_missing_cl {
+		method POST PUT PATCH
+		not header Content-Length *
+		not header Transfer-Encoding *
+	}
+	handle @api_missing_cl {
+		respond "Length Required" 411
+	}
+
+	# 5. Everything else → tts-service.
+	reverse_proxy {
+		dynamic a {
+			name tts-service
+			port 8000
+			refresh 5s
+		}
+		lb_policy least_conn
+		trusted_proxies private_ranges
+		header_down -server
+		header_down -via
+	}
+
+	# F67 — re-apply the security headers + Server/Via strip on Caddy-level
+	# error responses (405 from method_not_allowed, 411/413/etc. from the
+	# @api respond blocks above). Without this, Caddy's internal error path
+	# bypasses the site-level `header { ... }` middleware. Mirrors the same
+	# block in deploy/caddy/Caddyfile (security contract is symmetric). F70
+	# also rewrites the body to the project's ComadreError envelope.
+	handle_errors {
+		header {
+			Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			Referrer-Policy "strict-origin-when-cross-origin"
+			Permissions-Policy "microphone=(), camera=(), geolocation=()"
+			Content-Security-Policy "default-src 'none'; upgrade-insecure-requests; frame-ancestors 'none'"
+			Content-Type "application/json"
+			-Server
+			-Via
+		}
+		respond `{"error":{"message":"{err.status_text}","type":"caddy_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

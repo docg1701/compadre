@@ -1,0 +1,202 @@
+---
+# Comadre Key-Registry Backup Playbook (Story 4.3 — FR40, NFR14, NFR22)
+#
+# Creates a nightly-consistent encrypted snapshot of the SQLite key registry
+# + its Fernet encryption key, writes it to the DB's parent directory, and
+# prunes archives older than ``backup_retention_days`` (default 14).
+#
+#   export COMPADRE_BACKUP_PASSPHRASE="$(python -c \
+#     'import secrets; print(secrets.token_urlsafe(32))')"
+#   ansible-playbook playbooks/backup-keys.yml -i inventory/production.yml \
+#     -e "ansible_become_password=YOUR_SUDO_PASS"
+#
+# The ``ansible_become_password`` is accepted for consistency with the other
+# playbooks in the suite but NOT strictly required — no task in this file
+# uses ``become: true``. All writes land inside the ``compadre-registry``
+# named volume as the unprivileged ``appuser`` inside the compadre-stt
+# container.
+#
+# Archive naming is load-bearing:
+#   ``{KEY_REGISTRY_DB_PATH}.backup-<UTC-ISO>.tar.gz.enc`` at mode 0600.
+# The path + glob are reserved for ``keys/health.py::_check_last_backup``
+# (pattern ``*.backup-*.tar.gz.enc`` rooted at ``Path(db_path).parent``).
+# Renaming silently breaks the "Last backup" health row — don't.
+#
+# Idempotency: running twice back-to-back produces two separate archives
+# (different ISO timestamp). The playbook's contract is "create a fresh
+# archive"; re-running is re-snapshotting, not a no-op.
+
+- name: Backup Comadre key registry
+  hosts: compadre_vps
+  gather_facts: false
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Verify SSH connectivity"
+      ansible.builtin.ping:
+
+    - name: "[Prereq] Validate backup passphrase is configured"
+      ansible.builtin.assert:
+        that:
+          - backup_passphrase | default('') | length >= 16
+        fail_msg: >-
+          COMPADRE_BACKUP_PASSPHRASE environment variable is not set or is
+          shorter than 16 characters. Generate a fresh passphrase with:
+          export COMPADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets;
+          print(secrets.token_urlsafe(32))')"
+        success_msg: "Backup passphrase is configured."
+
+    - name: "[Prereq] Validate backup_retention_days is positive"
+      ansible.builtin.assert:
+        that:
+          - (backup_retention_days | default(14) | int) >= 1
+        fail_msg: >-
+          backup_retention_days must be >= 1; a value of 0 would cause
+          `find -mtime +0 -delete` to remove tonight's fresh archive on the
+          next run. Set backup_retention_days to the number of days you
+          want to keep archives (default 14).
+        success_msg: >-
+          Retention is configured ({{ backup_retention_days | default(14) }} days).
+
+    - name: "[Prereq] Verify ~/compadre exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir_stat
+
+    - name: "[Prereq] Fail if ~/compadre is missing"
+      ansible.builtin.assert:
+        that:
+          - compadre_dir_stat.stat.exists
+          - compadre_dir_stat.stat.isdir
+        fail_msg: >-
+          ~/compadre directory not found. Run bootstrap.yml before attempting
+          a backup.
+
+    - name: "[Prereq] Verify compadre-stt container is running"
+      ansible.builtin.command:
+        cmd: docker compose ps -q compadre-stt
+        chdir: "~/compadre"
+      register: tts_service_ps
+      changed_when: false
+      failed_when: tts_service_ps.stdout | length == 0
+
+    # =========================================================================
+    # Backup Execution
+    # =========================================================================
+    #
+    # Runs a single ``bash -c`` inside the compadre-stt container. The script:
+    #   1. Opens a SQLite consistency snapshot via Python stdlib Connection.backup().
+    #      This is NOT a plain ``cp`` — it follows SQLite's .backup() semantics,
+    #      serialising the DB without holding readers out and producing a
+    #      transactionally-consistent file even while the registry is being
+    #      written to.
+    #   2. Captures the live ``KEY_REGISTRY_ENCRYPTION_KEY`` from the process
+    #      env (source of truth — any .env edit since ``docker compose up`` has
+    #      NOT taken effect inside the running container until restart).
+    #   3. Tars both payloads (``registry.db``, ``encryption-key.txt``).
+    #   4. Encrypts the tarball with AES-256-GCM (authenticated). The
+    #      32-byte key is derived from ``BACKUP_PASSPHRASE`` via
+    #      PBKDF2-HMAC-SHA256 (600 000 iterations, OWASP-2023 floor).
+    #      Archive layout: 5-byte ``CMV2\n`` magic + 16-byte salt +
+    #      12-byte nonce + ciphertext + 16-byte auth tag. Restore
+    #      dispatches on the magic header so legacy ``Salted__`` /
+    #      AES-256-CBC archives (pre-F2) still decrypt.
+    #   5. ``chmod 0600`` on the resulting archive (NFR14).
+    #   6. Prunes archives older than ``backup_retention_days`` via
+    #      ``find -mtime +N -delete`` in the same parent directory.
+
+    # F6 — script body lives in deploy/ansible/scripts/backup-keys.sh;
+    # this task pipes the file's contents into ``bash -s`` inside the
+    # container. No more inline ``_backup_script`` jinja blob — quoting
+    # fragility eliminated, shellcheck can lint the script directly,
+    # and the playbook surface stays a thin invocation contract.
+    - name: "[Backup] Snapshot + encrypt + prune"
+      # B16 — invoke the binary baked into the image at
+      # ``/usr/local/bin/compadre-keys-backup`` instead of piping the
+      # script body via ``bash -s``. Same script content, but the cron
+      # entry installed by ``bootstrap.yml`` calls this binary directly
+      # (no ansible-on-VPS dependency). Ad-hoc operator invocations from
+      # the laptop also benefit: any drift between repo and image is
+      # surfaced explicitly (rebuild+ deploy required) instead of silently
+      # diverging from the cron-time behaviour.
+      #
+      # Forwarding pattern: ``-e BACKUP_PASSPHRASE`` (NO ``=value``) tells
+      # ``docker compose exec`` to pull the variable from the docker CLI's
+      # process env, which we set via ansible's ``environment:`` keyword.
+      # This keeps the secret out of argv (and therefore out of /proc/<pid>/cmdline
+      # during the brief exec window) — passing ``-e VAR=$value`` would inline
+      # the value into the docker CLI's argv, visible to any user with /proc
+      # access. ``no_log: true`` masks the task's stdout/stderr in ansible logs.
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T
+          -e BACKUP_PASSPHRASE
+          -e BACKUP_RETENTION_DAYS={{ backup_retention_days | default(14) }}
+          compadre-stt compadre-keys-backup
+        chdir: "~/compadre"
+      environment:
+        BACKUP_PASSPHRASE: "{{ backup_passphrase }}"
+      register: backup_result
+      changed_when: true
+      no_log: true
+
+    # =========================================================================
+    # Verification
+    # =========================================================================
+
+    - name: "[Verify] List the newest archive"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T compadre-stt bash -c '
+          DB_DIR="$(dirname "${KEY_REGISTRY_DB_PATH:-/var/lib/compadre/registry.db}")";
+          ls -t "$DB_DIR"/registry.db.backup-*.tar.gz.enc 2>/dev/null | head -1'
+        chdir: "~/compadre"
+      register: newest_archive
+      changed_when: false
+
+    - name: "[Verify] Fail if no archive was produced"
+      ansible.builtin.assert:
+        that:
+          - newest_archive.stdout | trim | length > 0
+        fail_msg: "No backup archive found in the DB parent directory."
+
+    - name: "[Verify] Confirm archive is mode 0600"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose exec -T compadre-stt bash -c 'stat -c %a "{{ newest_archive.stdout | trim }}"'
+        chdir: "~/compadre"
+      register: archive_mode
+      changed_when: false
+      failed_when: archive_mode.stdout | trim != "600"
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Compute scp-safe ansible_host (IPv6 → bracket form)"
+      ansible.builtin.set_fact:
+        _scp_host: "{{ '[' ~ ansible_host ~ ']' if ':' in ansible_host else ansible_host }}"
+
+    - name: "[Summary] Report backup status"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Comadre Key-Registry Backup — Complete
+          ============================================
+
+          Archive:        {{ newest_archive.stdout | trim }}
+          File mode:      {{ archive_mode.stdout | trim }}
+          Retention:      {{ backup_retention_days | default(14) }} days
+          Next cron run:  02:00 {{ billing_timezone | default('UTC') }}
+
+          Script output:
+          {{ backup_result.stdout | default('(none)') }}
+
+          Off-VPS archival hint — rotate this file to cold storage weekly:
+            scp {{ ansible_user }}@{{ _scp_host }}:{{ newest_archive.stdout | trim }} \
+              ./backups/
+
+          ============================================

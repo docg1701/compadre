@@ -1,0 +1,169 @@
+---
+# Comadre Update Playbook
+# Updates a running Comadre deployment from the latest repo:
+#   ansible-playbook playbooks/update.yml -i inventory/production.yml
+#
+# Assumes bootstrap.yml has already been run. Entirely unprivileged — no become: true.
+# Data in Docker volumes (models, voices, audio) is preserved across rebuilds.
+
+- name: Update Compadre STT Service
+  hosts: compadre_vps
+  gather_facts: true
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Verify Comadre directory exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir
+
+    - name: "[Prereq] Fail if not bootstrapped"
+      ansible.builtin.assert:
+        that:
+          - compadre_dir.stat.exists
+          - compadre_dir.stat.isdir
+        fail_msg: >-
+          ~/compadre directory does not exist.
+          Run bootstrap.yml first to deploy the service.
+        success_msg: "Comadre directory found."
+
+    - name: "[Prereq] Verify service is running"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml ps -q --status running compadre-stt
+      register: tts_running_containers
+      changed_when: false
+
+    - name: "[Prereq] Fail if service is not running"
+      ansible.builtin.assert:
+        that:
+          - tts_running_containers.stdout_lines | length > 0
+        fail_msg: >-
+          Comadre service has no running containers.
+          Investigate why the service is down before attempting an update.
+          Check logs with: cd ~/compadre && docker compose logs
+        success_msg: "Comadre service is running."
+
+    # =========================================================================
+    # Git Pull
+    # =========================================================================
+
+    - name: "[Git] Pull latest changes"
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "~/compadre"
+        version: "{{ repo_branch }}"
+        force: true
+        update: true
+
+    # =========================================================================
+    # Landing Page Toggle
+    # =========================================================================
+    # When landing_enabled is false, swap the committed Caddyfile (which serves
+    # the public homepage at /) for the API-only variant. force: true on the
+    # git pull above ensures the previous run's swap is reverted before this
+    # task re-applies the toggle, so flipping landing_enabled in either direction
+    # is idempotent across runs.
+
+    - name: "[Caddy] Use API-only Caddyfile (landing page disabled)"
+      when: not (landing_enabled | default(true) | bool)
+      ansible.builtin.copy:
+        src: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/caddy/Caddyfile-no-landing"
+        dest: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/caddy/Caddyfile"
+        remote_src: true
+        mode: "0644"
+
+    # =========================================================================
+    # Configuration Sync
+    # =========================================================================
+
+    - name: "[Config] Add missing env vars from .env.example"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        while IFS= read -r line; do
+          var_name=$(echo "$line" | grep -oP '^\w+(?==)' || true)
+          if [ -n "$var_name" ] && ! grep -q "^${var_name}=" ~/compadre/.env; then
+            echo "$line" >> ~/compadre/.env
+            echo "Added: $var_name"
+          fi
+        done < ~/compadre/.env.example
+      args:
+        executable: /bin/bash
+      register: env_sync
+      changed_when: "'Added:' in env_sync.stdout"
+
+    - name: "[Config] Show added variables"
+      when: env_sync.changed
+      ansible.builtin.debug:
+        msg: "{{ env_sync.stdout }}"
+
+    # =========================================================================
+    # Service Rebuild & Restart
+    # =========================================================================
+
+    - name: "[TTS] Rebuild image and restart all services"
+      community.docker.docker_compose_v2:
+        project_src: "~/compadre"
+        state: present
+        build: always
+        recreate: always
+        remove_orphans: true
+
+    # =========================================================================
+    # Health Check
+    # =========================================================================
+
+    - name: "[Health] Wait for service to become healthy"
+      ansible.builtin.uri:
+        url: "https://{{ domain | default('localhost') }}/health"
+        validate_certs: false
+        return_content: true
+      register: health_check
+      until: >-
+        health_check.status == 200
+        and (health_check.json.status | default('')) == "healthy"
+      retries: 60
+      delay: 10
+
+    - name: "[Health] Report failure with actionable next steps"
+      when: >-
+        health_check is failed
+        or (health_check.json.status | default('')) != "healthy"
+      ansible.builtin.fail:
+        msg: |
+          Health check failed after rebuild. Service may be in a broken state.
+
+          Immediate actions:
+            1. Check logs:   docker compose -f ~/compadre/compose.yaml logs --tail=50
+            2. Check status: docker compose -f ~/compadre/compose.yaml ps
+            3. Try restart:  docker compose -f ~/compadre/compose.yaml restart
+
+          If the issue persists, consider rolling back by checking out the
+          previous git commit and rebuilding:
+            cd ~/compadre && git log --oneline -5
+            git checkout <previous-commit> && docker compose up -d --build
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] Report update status"
+      vars:
+        hc: "{{ health_check.json | default({}) }}"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Compadre STT Service — Update Complete
+          ============================================
+
+          Service Status:  {{ hc.status | default('unknown') }}
+          Loaded Models:   {{ hc.models | default([]) | join(', ') }}
+          Model Count:     {{ hc.models | default([]) | length }}
+          HTTPS URL:       https://{{ ansible_host }}
+
+          Data preserved:  Volumes (models, voices, audio, registry) intact
+          Config:          Missing env vars added from .env.example
+
+          ============================================

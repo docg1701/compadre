@@ -1,0 +1,8 @@
+---
+ignored:
+  # apt version pinning — system deps don't need exact versions
+  - DL3008
+  # pip version pinning — not applicable, we use uv
+  - DL3013
+  # multiple consecutive RUN instructions
+  - DL3059

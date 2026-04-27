@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compadre — STT para WhatsApp em Português Brasileiro</title>
+  <meta name="description" content="Compadre Ouve Mensagem Por Áudio, Devolve Resposta Escrita. API self-hosted de speech-to-text otimizada para PT-BR, com endpoint compatível com OpenAI.">
+  <link rel="icon" href="/logo-compadre.webp" type="image/webp">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Bungee&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface-2: #21262d;
+      --border: #30363d;
+      --border-hover: #484f58;
+      --text: #e6edf3;
+      --text-secondary: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --accent-dim: rgba(88, 166, 255, 0.12);
+      --error: #f85149;
+      --error-dim: rgba(248, 81, 73, 0.12);
+      --success: #3fb950;
+      --radius: 12px;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 32px;
+      width: 100%;
+    }
+
+    /* ─── Hero ─── */
+
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      padding: 60px 0 32px;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 1px 1px, rgba(88, 166, 255, 0.05) 1px, transparent 0);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .logo-img {
+      width: clamp(180px, 26vw, 300px);
+      height: auto;
+      margin-bottom: 28px;
+    }
+
+    .tagline {
+      font-size: clamp(15px, 2.2vw, 18px);
+      font-weight: 300;
+      color: var(--text-secondary);
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .tagline strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* ─── Info badges ─── */
+
+    .info-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 32px 24px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .info-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .info-badge svg {
+      width: 12px;
+      height: 12px;
+      fill: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .info-badge strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* ─── Section headers ─── */
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .section-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-align: center;
+      margin-bottom: 32px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ─── Main / form card ─── */
+
+    main {
+      flex: 1;
+      padding: 8px 0 24px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      transition: border-color 0.2s ease;
+    }
+
+    .card:focus-within {
+      border-color: var(--border-hover);
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group:last-of-type {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 15px;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--surface-2);
+    }
+
+    /* ─── File upload with drag-and-drop ─── */
+
+    .file-upload-area {
+      position: relative;
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 32px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      background: var(--bg);
+    }
+
+    .file-upload-area:hover,
+    .file-upload-area.dragover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .file-upload-area.has-file {
+      border-style: solid;
+      border-color: var(--success);
+    }
+
+    .file-upload-area input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .file-upload-icon {
+      display: block;
+      margin: 0 auto 12px;
+      width: 40px;
+      height: 40px;
+      fill: var(--text-secondary);
+      transition: fill 0.2s ease;
+    }
+
+    .file-upload-area:hover .file-upload-icon,
+    .file-upload-area.dragover .file-upload-icon {
+      fill: var(--accent);
+    }
+
+    .file-upload-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      transition: color 0.2s ease;
+    }
+
+    .file-upload-area:hover .file-upload-text,
+    .file-upload-area.dragover .file-upload-text {
+      color: var(--text);
+    }
+
+    .file-upload-hint {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .file-name {
+      display: none;
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--success);
+      font-weight: 500;
+    }
+
+    .file-upload-area.has-file .file-name {
+      display: block;
+    }
+
+    .file-upload-area.has-file .file-upload-text {
+      color: var(--success);
+    }
+
+    /* ─── Responsive form rows ─── */
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .form-row.first-row {
+      margin-bottom: 0;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    /* ─── Submit button ─── */
+
+    button[type="submit"] {
+      display: block;
+      margin: 8px auto 0;
+      padding: 13px 20px;
+      background: var(--accent);
+      color: #0d1117;
+      border: 1px solid var(--accent-hover);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease;
+      letter-spacing: 0.3px;
+    }
+
+    button[type="submit"]:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    button[type="submit"]:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    button[type="submit"]:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* ─── Result panel ─── */
+
+    .result {
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: none;
+    }
+
+    .result.visible {
+      display: block;
+    }
+
+    .result-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .result-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--surface-2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+
+    .copy-btn.copied {
+      color: var(--success);
+      border-color: var(--success);
+    }
+
+    .copy-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+
+    .transcription-text {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre-wrap;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
+    .transcription-meta {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .transcription-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .transcription-meta strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .error {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: var(--error-dim);
+      border: 1px solid var(--error);
+      border-radius: 8px;
+      color: var(--error);
+      font-size: 14px;
+      display: none;
+    }
+
+    .error.visible {
+      display: block;
+    }
+
+    .error-type {
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      opacity: 0.8;
+    }
+
+    .error-hint {
+      margin-top: 6px;
+      font-size: 13px;
+      opacity: 0.8;
+    }
+
+    /* ─── API Docs section ─── */
+
+    .section {
+      padding: 48px 0 24px;
+    }
+
+    .endpoint-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .endpoint-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .endpoint-method {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+    }
+
+    .endpoint-path {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .endpoint-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .endpoint-desc code {
+      background: var(--surface-2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    /* ─── Pricing section ─── */
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .pricing-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-align: center;
+    }
+
+    .pricing-card.featured {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .pricing-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .pricing-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .pricing-price {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .pricing-unit {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .pricing-features {
+      list-style: none;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 2;
+    }
+
+    .pricing-features li::before {
+      content: '✓ ';
+      color: var(--success);
+      font-weight: 700;
+    }
+
+    /* ─── Footer ─── */
+
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 48px 0 32px;
+      background: #0a0e13;
+      margin-top: auto;
+    }
+
+    .footer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 40px;
+      margin-bottom: 32px;
+    }
+
+    .footer-brand {
+      flex-shrink: 0;
+    }
+
+    .footer-logo {
+      font-family: 'Bungee', cursive;
+      font-size: 18px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .footer-logo a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-logo a:hover {
+      color: var(--accent);
+    }
+
+    .footer-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      max-width: 320px;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .footer-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    .footer-link:hover {
+      color: var(--text);
+    }
+
+    .footer-link svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+
+    .footer-bottom {
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+
+    /* ─── Responsive ─── */
+
+    @media (max-width: 900px) {
+      .container {
+        max-width: 720px;
+      }
+      .card,
+      .endpoint-card,
+      .pricing-card {
+        padding: 28px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 0 16px;
+      }
+      .hero {
+        padding: 40px 0 24px;
+      }
+      .card {
+        padding: 24px 20px;
+        border-radius: 10px;
+      }
+      .form-row {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .section {
+        padding: 32px 0 16px;
+      }
+      .footer {
+        padding: 32px 0 24px;
+      }
+      .footer-top {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+      .footer-text {
+        max-width: 100%;
+      }
+      .footer-links {
+        align-items: center;
+      }
+      .info-bar {
+        padding: 0 16px 20px;
+        gap: 6px;
+      }
+      .info-badge {
+        font-size: 11px;
+        padding: 5px 10px;
+      }
+      .transcription-meta {
+        flex-direction: column;
+        gap: 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="hero-content">
+      <img src="/logo-compadre.webp" alt="Compadre" class="logo-img">
+      <p class="tagline">
+        Compadre <strong>Ouve Mensagem Por Áudio</strong>, Devolve Resposta Escrita.<br>
+        Speech-to-text para WhatsApp em PT-BR, rodando na sua infraestrutura.
+      </p>
+    </div>
+  </header>
+
+  <!-- Limits / info badges -->
+  <div class="info-bar">
+    <span class="info-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 17h-2v-6h2v6zm0-8h-2V7h2v4z"/></svg>
+      <strong>30</strong>&nbsp;requests/min por chave
+    </span>
+    <span class="info-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l6.59-6.59L19 9l-8 8z"/></svg>
+      até <strong>25&nbsp;MB</strong> por arquivo
+    </span>
+    <span class="info-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z"/></svg>
+      <strong>Sem armazenamento</strong>&nbsp;de áudio
+    </span>
+    <span class="info-badge">
+      <svg viewBox="0 0 24 24"><path d="M19.77 4.93l1.4 1.4L8.43 19.07l-5.6-5.6 1.4-1.4 4.2 4.2L19.77 4.93z"/></svg>
+      <strong>faster-whisper</strong>&nbsp;large-v3
+    </span>
+  </div>
+
+  <!-- Main form -->
+  <main>
+    <div class="container">
+      <form id="form" class="card" autocomplete="off" enctype="multipart/form-data">
+
+        <div class="form-group">
+          <label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" required autocomplete="off"
+                 placeholder="Cole sua chave aqui">
+        </div>
+
+        <div class="form-group">
+          <label for="audioFile">Arquivo de áudio</label>
+          <div class="file-upload-area" id="fileUploadArea">
+            <input type="file" id="audioFile" accept=".opus,.ogg,.mp3,.wav,.m4a" required>
+            <svg class="file-upload-icon" viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zM8 14h8v2H8v-2zm0 4h8v2H8v-2zm0-8h5v2H8v-2z"/>
+            </svg>
+            <span class="file-upload-text">Clique ou arraste um arquivo de áudio</span>
+            <span class="file-upload-hint">.opus, .ogg, .mp3, .wav, .m4a — até 25 MB</span>
+            <span class="file-name" id="fileName"></span>
+          </div>
+        </div>
+
+        <div class="form-row first-row">
+          <div class="form-group">
+            <label for="responseFormat">Formato da resposta</label>
+            <select id="responseFormat">
+              <option value="text">text</option>
+              <option value="json" selected>json</option>
+              <option value="verbose_json">verbose_json</option>
+              <option value="srt">srt</option>
+              <option value="vtt">vtt</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="language">Idioma (código ISO 639-1)</label>
+            <input type="text" id="language" value="pt" maxlength="5"
+                   placeholder="pt">
+          </div>
+        </div>
+
+        <button type="submit" id="submit">Transcrever</button>
+
+        <div id="error" class="error">
+          <div class="error-type" id="errorType"></div>
+          <div id="errorMessage"></div>
+          <div class="error-hint" id="errorHint"></div>
+        </div>
+
+        <div id="result" class="result">
+          <div class="result-label">
+            <span>Transcrição</span>
+            <div class="result-actions">
+              <button type="button" class="copy-btn" id="copyBtn" title="Copiar transcrição">
+                <svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg>
+                Copiar
+              </button>
+            </div>
+          </div>
+          <div class="transcription-text" id="transcriptionText"></div>
+          <div class="transcription-meta" id="transcriptionMeta"></div>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- Footer spacer -->
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div class="footer-logo">
+            <a href="https://pixeloddity.org" target="_blank" rel="noopener">PixelOddity Enterprises</a>
+          </div>
+          <p class="footer-text">AI, automation &amp; infrastructure &mdash; built in-house, running on our own servers.</p>
+        </div>
+        <div class="footer-links">
+          <a href="https://pixeloddity.org" target="_blank" rel="noopener" class="footer-link">
+            <svg viewBox="0 0 24 24"><path d="M12 0a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 22C6.5 22 2 17.5 2 12S6.5 2 12 2s10 4.5 10 10-4.5 10-10 10zm-1-17h2v6h-2zm0 8h2v2h-2z"/></svg>
+            pixeloddity.org
+          </a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>Powered by Compadre &copy; 2026 PixelOddity Enterprises</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      'use strict';
+
+      const form = document.getElementById('form');
+      const apiKeyEl = document.getElementById('apiKey');
+      const audioFileEl = document.getElementById('audioFile');
+      const fileUploadArea = document.getElementById('fileUploadArea');
+      const fileNameEl = document.getElementById('fileName');
+      const responseFormatEl = document.getElementById('responseFormat');
+      const languageEl = document.getElementById('language');
+      const submitBtn = document.getElementById('submit');
+      const errorBox = document.getElementById('error');
+      const errorType = document.getElementById('errorType');
+      const errorMessage = document.getElementById('errorMessage');
+      const errorHint = document.getElementById('errorHint');
+      const resultBox = document.getElementById('result');
+      const transcriptionText = document.getElementById('transcriptionText');
+      const transcriptionMeta = document.getElementById('transcriptionMeta');
+      const copyBtn = document.getElementById('copyBtn');
+
+      // File upload drag-and-drop
+      fileUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileUploadArea.classList.add('dragover');
+      });
+
+      fileUploadArea.addEventListener('dragleave', () => {
+        fileUploadArea.classList.remove('dragover');
+      });
+
+      fileUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        fileUploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+          audioFileEl.files = e.dataTransfer.files;
+          updateFileDisplay();
+        }
+      });
+
+      audioFileEl.addEventListener('change', updateFileDisplay);
+
+      function updateFileDisplay() {
+        const file = audioFileEl.files[0];
+        if (file) {
+          fileNameEl.textContent = file.name;
+          fileUploadArea.classList.add('has-file');
+        } else {
+          fileNameEl.textContent = '';
+          fileUploadArea.classList.remove('has-file');
+        }
+      }
+
+      function showError(type, message, hint) {
+        errorType.textContent = type || 'error';
+        errorMessage.textContent = message || 'Erro desconhecido';
+        errorHint.textContent = hint || '';
+        errorHint.style.display = hint ? 'block' : 'none';
+        errorBox.classList.add('visible');
+      }
+
+      function hideError() {
+        errorBox.classList.remove('visible');
+      }
+
+      function hideResult() {
+        resultBox.classList.remove('visible');
+        transcriptionText.textContent = '';
+        transcriptionMeta.innerHTML = '';
+        resetCopyButton();
+      }
+
+      function resetCopyButton() {
+        copyBtn.classList.remove('copied');
+        copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg> Copiar';
+      }
+
+      // Copy to clipboard
+      copyBtn.addEventListener('click', async () => {
+        const text = transcriptionText.textContent;
+        if (!text) return;
+
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.classList.add('copied');
+          copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg> Copiado!';
+          setTimeout(resetCopyButton, 2500);
+        } catch {
+          // Fallback for older browsers
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          copyBtn.classList.add('copied');
+          copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg> Copiado!';
+          setTimeout(resetCopyButton, 2500);
+        }
+      });
+
+      // Submit handler
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideError();
+        hideResult();
+
+        const apiKey = apiKeyEl.value.trim();
+        if (!apiKey) {
+          showError('invalid_request', 'API Key é obrigatória.', 'Cole sua chave no campo acima.');
+          return;
+        }
+
+        const file = audioFileEl.files[0];
+        if (!file) {
+          showError('invalid_request', 'Selecione um arquivo de áudio.', 'Clique ou arraste um arquivo para a área de upload.');
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('model', 'faster-whisper-large-v3');
+        formData.append('response_format', responseFormatEl.value);
+        formData.append('language', languageEl.value.trim() || 'pt');
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Transcrevendo…';
+
+        try {
+          const ac = new AbortController();
+          setTimeout(() => ac.abort(), 120000);
+          const r = await fetch('/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + apiKey,
+            },
+            body: formData,
+            signal: ac.signal,
+          });
+
+          if (!r.ok) {
+            let errData;
+            try {
+              errData = await r.json();
+            } catch {
+              errData = { error: { message: 'HTTP ' + r.status, type: 'http_error', hint: '' } };
+            }
+            const err = errData.error || { message: 'HTTP ' + r.status, type: 'unknown', hint: '' };
+            showError(err.type, err.message, err.hint);
+            return;
+          }
+
+          const respFormat = responseFormatEl.value;
+          let displayText = '';
+
+          if (respFormat === 'text') {
+            displayText = await r.text();
+            transcriptionMeta.innerHTML = '<span>Formato: <strong>text</strong></span>';
+          } else if (respFormat === 'srt' || respFormat === 'vtt') {
+            displayText = await r.text();
+            transcriptionMeta.innerHTML = '<span>Formato: <strong>' + respFormat + '</strong></span>';
+          } else {
+            // json or verbose_json
+            const data = await r.json();
+            if (respFormat === 'verbose_json') {
+              displayText = data.text || '';
+              const segments = data.segments || [];
+              const lang = data.language || '—';
+              const duration = data.duration != null ? Number(data.duration).toFixed(1) + 's' : '—';
+              transcriptionMeta.innerHTML =
+                '<span>Idioma detectado: <strong>' + lang + '</strong></span>' +
+                '<span>Duração: <strong>' + duration + '</strong></span>' +
+                '<span>Segmentos: <strong>' + segments.length + '</strong></span>';
+            } else {
+              displayText = data.text || '';
+              transcriptionMeta.innerHTML = '<span>Formato: <strong>json</strong></span>';
+            }
+          }
+
+          transcriptionText.textContent = displayText;
+          resultBox.classList.add('visible');
+        } catch (e) {
+          showError('network_error', e.message || 'Erro de rede', 'Verifique sua conexão e tente novamente.');
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Transcrever';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

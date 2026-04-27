@@ -1,0 +1,541 @@
+---
+# Comadre Operational Health Assertion Playbook (Story 4.4)
+# Single command to verify the deployment is in its expected state:
+#   ansible-playbook playbooks/health.yml -i inventory/production.yml
+#
+# Behaviour: read-only — every command is ``changed_when: false``. Each
+# operational invariant is enforced via ``ansible.builtin.assert``:
+#   - DB file mode == 0600
+#   - DB parent dir mode == 0700
+#   - ``compadre-daily-suspension`` cron entry present in host crontab
+#   - ``compadre-keys-backup`` cron entry present in host crontab
+#   - >= 1 ``*.backup-*.tar.gz.enc`` archive present in registry volume
+#   - UFW active with exactly 22/tcp + 80/tcp + 443/tcp ALLOW rules
+#   - In-container ``compadre-keys health --format json`` reports
+#     ``is_healthy=True`` (delegates DB-state probes — schema version,
+#     customer/key counts, sweep freshness, cache state, last-backup
+#     freshness, backup-cron-installed)
+#
+# Each assertion carries a ``fail_msg`` with the exact corrective command.
+# Ansible exits non-zero on any failed assert (default behaviour) — wire
+# the exit code into monitoring (``crontab + logger -t compadre-health``),
+# CI (Story 4.5x), or the LGPD breach runbook (Story 4.6).
+#
+# UFW assertion uses ``become: true`` for the ``ufw status`` read.
+# Everything else is unprivileged.
+#
+# Diagnostic surfaces (container running, /health endpoint, disk usage,
+# voice list) are preserved as informational pre-checks so operators get
+# the same diagnostic output they had before Story 4.4 — but the new
+# assertion chain is the trustworthy "is the deployment safe?" boolean.
+
+- name: Verify Compadre STT Service operational state
+  hosts: compadre_vps
+  gather_facts: false
+
+  tasks:
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+
+    - name: "[Prereq] Check Comadre directory exists"
+      ansible.builtin.stat:
+        path: "~/compadre"
+      register: compadre_dir
+
+    - name: "[Prereq] Verify Comadre is deployed"
+      ansible.builtin.assert:
+        that:
+          - compadre_dir.stat.exists
+          - compadre_dir.stat.isdir
+        fail_msg: >-
+          ~/compadre directory does not exist.
+          Run bootstrap.yml first to deploy the service.
+        success_msg: "Comadre directory found."
+
+    - name: "[Prereq] Verify SSH connectivity"
+      ansible.builtin.ping:
+
+    - name: "[Prereq] Probe TTS service container"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml ps -q --status running compadre-stt
+      register: tts_running_containers
+      changed_when: false
+
+    - name: "[Prereq] Assert compadre-stt container is running"
+      ansible.builtin.assert:
+        that:
+          - tts_running_containers.stdout_lines | length >= 1
+        fail_msg: |
+          compadre-stt has no running containers.
+          Start the service before running health.yml:
+            cd ~/compadre && docker compose up -d
+          Inspect logs:
+            cd ~/compadre && docker compose logs compadre-stt
+        success_msg: "compadre-stt container is running ({{ tts_running_containers.stdout_lines | length }} replica(s))."
+
+    # =========================================================================
+    # DB-state delegation — compadre-keys health --format json (Story 3.4 + 4.4)
+    # =========================================================================
+    # The in-container CLI is the single source of truth for DB-state
+    # probes (schema version, customer/key counts, sweep freshness,
+    # cache state, last-backup freshness, backup-cron-installed). The
+    # CLI's exit-7-on-warn/fail contract bridges to the ansible layer.
+
+    - name: "[DB] Run in-container compadre-keys health (JSON)"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt compadre-keys health --format json
+      register: cli_health
+      changed_when: false
+      failed_when: false  # inspect the JSON before failing
+
+    - name: "[DB] Assert compadre-keys health produced JSON output"
+      ansible.builtin.assert:
+        that:
+          - cli_health.stdout | default('') | length > 0
+        fail_msg: |
+          compadre-keys health exited with rc={{ cli_health.rc }} and produced no stdout.
+          The CLI likely crashed before emitting JSON (OOM, segfault, image drift).
+          Inspect container logs:
+            cd ~/compadre && docker compose logs compadre-stt --tail 100
+          Re-run the CLI directly for full diagnostic output:
+            docker compose exec compadre-stt compadre-keys health
+        success_msg: "compadre-keys health emitted {{ cli_health.stdout | length }} bytes of JSON."
+
+    - name: "[DB] Parse compadre-keys health JSON"
+      ansible.builtin.set_fact:
+        health_json: "{{ cli_health.stdout | from_json }}"
+
+    - name: "[DB] Assert compadre-keys health is_healthy"
+      ansible.builtin.assert:
+        that:
+          - cli_health.rc == 0
+          - health_json.is_healthy | bool
+        fail_msg: |
+          compadre-keys health reports unhealthy state (exit {{ cli_health.rc }}).
+          Failing checks:
+          {% for c in health_json.checks if c.severity in ['warn', 'fail'] %}
+            - {{ c.label }}: {{ c.value }}{% if c.detail %} ({{ c.detail }}){% endif %}
+          {% endfor %}
+          Re-run inside the container for full table output:
+            docker compose exec compadre-stt compadre-keys health
+        success_msg: "compadre-keys health: {{ health_json.checks | length }} checks, all green."
+
+    # =========================================================================
+    # Backstop file-permission assertions (FR42, NFR13)
+    # =========================================================================
+    # Even though the in-container CLI's Database row already covers DB
+    # mode 0600 (Story 3.4), the epic AC3 explicitly names "DB file
+    # permissions (fail if not 0600)". Asserting again at the ansible
+    # layer makes health.yml self-evidently FR42-fulfilling — operators
+    # can audit the playbook without reading Python.
+
+    - name: "[FS] Stat DB file mode"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt stat -c '%a' {{ key_registry_db_path }}
+      register: db_mode
+      changed_when: false
+
+    - name: "[FS] Assert DB file mode is 0600"
+      ansible.builtin.assert:
+        that:
+          - db_mode.stdout | trim == '600'
+        fail_msg: |
+          {{ key_registry_db_path }} has mode {{ db_mode.stdout | trim }} (expected 600).
+          Fix:
+            docker compose exec compadre-stt chmod 600 {{ key_registry_db_path }}
+        success_msg: "DB file mode is 600."
+
+    - name: "[FS] Stat DB parent directory mode"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml exec -T compadre-stt
+          stat -c '%a' {{ key_registry_db_path | dirname }}
+      register: db_parent_mode
+      changed_when: false
+
+    - name: "[FS] Assert DB parent dir mode is 0700"
+      ansible.builtin.assert:
+        that:
+          - db_parent_mode.stdout | trim == '700'
+        fail_msg: |
+          {{ key_registry_db_path | dirname }} has mode {{ db_parent_mode.stdout | trim }} (expected 700).
+          Fix:
+            docker compose exec compadre-stt chmod 700 {{ key_registry_db_path | dirname }}
+        success_msg: "DB parent dir mode is 700."
+
+    # =========================================================================
+    # Cron-installed assertions
+    # =========================================================================
+    # The in-container CLI's Cron + Backup cron rows read marker files
+    # written at bootstrap time. Reading the host crontab here catches
+    # the divergence case where an operator removes a cron entry without
+    # cleaning up the marker (or vice versa).
+
+    - name: "[Cron] Read host crontab"
+      ansible.builtin.command:
+        cmd: crontab -l
+      register: crontab_check
+      changed_when: false
+      failed_when: false  # crontab -l exits 1 when the crontab is empty
+
+    - name: "[Cron] Filter crontab to active (non-comment) entries"
+      # Commented-out lines (`# compadre-keys-backup …`) must NOT satisfy the
+      # assertions below — the entry is present as text but the cron
+      # daemon won't execute it.
+      ansible.builtin.set_fact:
+        active_crontab: >-
+          {{ (crontab_check.stdout_lines | default([]))
+             | reject('match', '^\\s*#')
+             | join('\n') }}
+
+    - name: "[Cron] Assert compadre-daily-suspension is installed"
+      ansible.builtin.assert:
+        that:
+          - "'compadre-daily-suspension' in active_crontab"
+        fail_msg: |
+          The 'compadre-daily-suspension' cron entry is missing (or is commented out) in the host crontab.
+          Fix: re-run bootstrap.yml
+            ansible-playbook bootstrap.yml -i inventory/production.yml \
+              -e "ansible_become_password=YOUR_SUDO_PASS"
+        success_msg: "compadre-daily-suspension cron is installed."
+
+    - name: "[Cron] Assert compadre-keys-backup is installed"
+      ansible.builtin.assert:
+        that:
+          - "'compadre-keys-backup' in active_crontab"
+        fail_msg: |
+          The 'compadre-keys-backup' cron entry is missing (or is commented out) in the host crontab.
+          Fix: re-run bootstrap.yml (Story 4.3 installs this cron)
+            ansible-playbook bootstrap.yml -i inventory/production.yml \
+              -e "ansible_become_password=YOUR_SUDO_PASS"
+        success_msg: "compadre-keys-backup cron is installed."
+
+    # =========================================================================
+    # Backup-archive existence (FR42 epic AC3 — "last backup output exists")
+    # =========================================================================
+    # The presence assertion respects the same grace period
+    # ``compadre.keys.health`` applies inside the CLI: a freshly-bootstrapped
+    # host whose backup-cron marker is < 48 h old has no archive yet (next
+    # firing at 02:00 operator-TZ — up to 24 h away). Inside that window,
+    # zero archives is the legitimate post-bootstrap state, not drift.
+    # Beyond the window, missing archives ARE drift and must fail loudly.
+
+    - name: "[Backup] Marker mtime + archive count"
+      # YAML-folding gotcha: a more-indented continuation in a ``>-`` block
+      # preserves the newline literally and bash rejects pipes that begin
+      # a new line. Each line below is at the same indentation level so
+      # folding turns the inter-line breaks into spaces, and the bash -c
+      # body becomes a single physical command separated by ``;``.
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml exec -T compadre-stt bash -c
+          'M="{{ key_registry_db_path }}.backup-cron-installed";
+          if [ -e "$M" ];
+          then echo "marker_age=$(( $(date +%s) - $(stat -c %Y "$M") ))";
+          else echo marker_age=-1;
+          fi;
+          C=$(ls {{ key_registry_db_path | dirname }}/*.backup-*.tar.gz.enc 2>/dev/null | wc -l);
+          echo "archive_count=$C"'
+      register: backup_state
+      changed_when: false
+
+    - name: "[Backup] Parse marker age + archive count"
+      ansible.builtin.set_fact:
+        backup_marker_age: >-
+          {{ (backup_state.stdout_lines
+              | select('match', '^marker_age=')
+              | first
+              | regex_replace('^marker_age=', '')
+              | int) }}
+        backup_count: >-
+          {{ (backup_state.stdout_lines
+              | select('match', '^archive_count=')
+              | first
+              | regex_replace('^archive_count=', '')
+              | int) }}
+
+    - name: "[Backup] Assert archive present unless inside post-bootstrap grace window"
+      # Grace window mirrors keys.health._SWEEP_STALENESS_WARN_SECONDS
+      # (48 h). Inside the window with zero archives → the nightly cron
+      # simply hasn't fired yet, so skip the assertion (and emit a debug
+      # line so operators know we deliberately skipped). Outside the
+      # window, zero archives is genuine drift — fail loudly.
+      when: >-
+        backup_marker_age | int < 0
+        or backup_marker_age | int >= 172800
+        or backup_count | int >= 1
+      ansible.builtin.assert:
+        that:
+          - backup_count | int >= 1
+        fail_msg: |
+          No backup archives found at {{ key_registry_db_path | dirname }}/*.backup-*.tar.gz.enc
+          and the backup-cron marker is {{ backup_marker_age }} s old (≥ 48 h grace window).
+          Either the nightly cron is not firing, or run a manual backup:
+            ansible-playbook backup-keys.yml -i inventory/production.yml \
+              -e "ansible_become_password=YOUR_SUDO_PASS"
+        success_msg: "{{ backup_count }} backup archive(s) present."
+
+    - name: "[Backup] Note grace-period skip when applicable"
+      when:
+        - backup_marker_age | int >= 0
+        - backup_marker_age | int < 172800
+        - backup_count | int < 1
+      ansible.builtin.debug:
+        msg: >-
+          INFO: 0 backup archives present, but the backup-cron marker is only
+          {{ backup_marker_age }} s old (within the 48 h post-bootstrap grace
+          window). The nightly cron hasn't fired yet — this is expected.
+
+    # F13 — size sanity. A crashed ``backup-keys.yml`` mid-``openssl enc``
+    # leaves a 0-byte (or sub-1024-byte salt-only) tarball that passes the
+    # count assertion above but is unrecoverable. Treat any archive smaller
+    # than 1 KiB as truncated.
+    - name: "[Backup] Smallest archive size in bytes"
+      # Only meaningful when ≥ 1 archive is present; gated below so a
+      # post-bootstrap-grace-window host with 0 archives doesn't try to
+      # stat a non-existent glob (and produce empty stdout that would
+      # spuriously fail the size assertion).
+      #
+      # NOTE: keep the bash -c body on a single physical YAML line. Folding
+      # via ``>-`` turns inter-line breaks into spaces ONLY when the lines
+      # share the same indentation; a more-indented continuation (e.g. a
+      # leading space before ``| sort``) preserves the newline literally,
+      # which bash receives as a line break and rejects with
+      # ``syntax error near unexpected token '|'``.
+      when: backup_count | int >= 1
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml exec -T compadre-stt bash -c
+          'stat -c %s {{ key_registry_db_path | dirname }}/*.backup-*.tar.gz.enc 2>/dev/null | sort -n | head -1'
+      register: backup_min_size
+      changed_when: false
+
+    - name: "[Backup] Assert no archive is 0-byte or truncated"
+      when: backup_count | int >= 1
+      ansible.builtin.assert:
+        that:
+          - (backup_min_size.stdout | trim | length) > 0
+          - (backup_min_size.stdout | trim | int) >= 1024
+        fail_msg: |
+          At least one backup archive at {{ key_registry_db_path | dirname }}/*.backup-*.tar.gz.enc
+          is 0-byte or truncated (smallest = {{ backup_min_size.stdout | trim }}
+          bytes; expected >= 1024). A crashed backup-keys.yml mid-``openssl enc``
+          leaves an unrecoverable salt-only file that the count-based check
+          would otherwise accept. Investigate, delete the bad archive, and
+          re-run backup-keys.yml.
+        success_msg: >-
+          All backup archives are at least 1 KiB
+          (smallest = {{ backup_min_size.stdout | trim }} bytes).
+
+    # =========================================================================
+    # UFW rules
+    # =========================================================================
+    # Expected: exactly {22, 80, 443} TCP ALLOW. UFW often duplicates
+    # each rule for IPv4 + IPv6 (up to 6 ALLOW lines). The assertion is
+    # a STRICT whitelist: every ALLOW line must match one of the three
+    # whitelisted ports. A hostile ``ufw allow 3306/tcp`` (MySQL) must
+    # fail the assertion even if total line count stays under 6.
+    #
+    # ``ALLOW OUT`` (outbound) and ``ALLOW FWD`` (Docker-added forwarded
+    # rules) are excluded from the whitelist set — the rules-of-interest
+    # are the inbound ALLOWs that define the host's public attack surface.
+    #
+    # Spec UX-DR calls for unprivileged probes; the UFW read tries without
+    # sudo first and only escalates via ``become`` when the unprivileged
+    # read fails. Both reads force ``LC_ALL=C`` so the "Status: active"
+    # substring match works on hosts with localised UFW output.
+
+    - name: "[UFW] Read firewall rules (unprivileged)"
+      ansible.builtin.command:
+        cmd: ufw status
+      register: ufw_status_unprivileged
+      changed_when: false
+      failed_when: false
+      environment:
+        LC_ALL: C
+
+    - name: "[UFW] Read firewall rules (sudo fallback)"
+      become: true
+      when: >-
+        ufw_status_unprivileged.rc != 0
+        or 'Status:' not in (ufw_status_unprivileged.stdout | default(''))
+      ansible.builtin.command:
+        cmd: ufw status
+      register: ufw_status_privileged
+      changed_when: false
+      failed_when: false
+      environment:
+        LC_ALL: C
+
+    - name: "[UFW] Adopt the winning UFW status"
+      ansible.builtin.set_fact:
+        ufw_status: >-
+          {{ ufw_status_privileged
+             if (ufw_status_privileged is defined
+                 and ufw_status_privileged.rc is defined
+                 and ufw_status_privileged.rc == 0)
+             else ufw_status_unprivileged }}
+
+    - name: "[UFW] Extract ALLOW lines"
+      ansible.builtin.set_fact:
+        ufw_allow_lines: >-
+          {{ ufw_status.stdout_lines
+             | default([])
+             | select('match', '.*ALLOW.*')
+             | reject('match', '.*ALLOW OUT.*')
+             | reject('match', '.*ALLOW FWD.*')
+             | list }}
+
+    - name: "[UFW] Assert UFW is active"
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in (ufw_status.stdout | default(''))"
+        fail_msg: |
+          UFW is not active (or the status read failed — if the unprivileged
+          read required sudo, re-run this playbook with
+          ``-e "ansible_become_password=YOUR_SUDO_PASS"``).
+          Fix:
+            sudo ufw enable
+            sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+          Or re-run bootstrap.yml.
+        success_msg: "UFW is active."
+
+    - name: "[UFW] Assert only the whitelisted ALLOW rules are present"
+      ansible.builtin.assert:
+        that:
+          # Each whitelisted port must appear in at least one ALLOW line.
+          - ufw_allow_lines | select('search', '\\b22/tcp\\b') | list | length >= 1
+          - ufw_allow_lines | select('search', '\\b80/tcp\\b') | list | length >= 1
+          - ufw_allow_lines | select('search', '\\b443/tcp\\b') | list | length >= 1
+          # STRICT whitelist — zero ALLOW lines outside {22, 80, 443}/tcp.
+          # Catches e.g. ``sudo ufw allow 3306/tcp`` even if the total
+          # line count stays under 6 (v4 + v6 cap for the 3 whitelisted
+          # ports).
+          - >-
+            ufw_allow_lines
+            | reject('search', '\\b(22|80|443)/tcp\\b')
+            | list | length == 0
+        fail_msg: |
+          UFW rules drifted from the whitelisted set (22/tcp + 80/tcp + 443/tcp).
+          Current ALLOW lines (ALLOW IN only — ALLOW OUT / ALLOW FWD filtered):
+          {% for line in ufw_allow_lines %}
+            {{ line }}
+          {% endfor %}
+          Unexpected entries:
+          {% for line in (ufw_allow_lines | reject('search', '\\b(22|80|443)/tcp\\b') | list) %}
+            {{ line }}
+          {% endfor %}
+          Fix: review and remove unexpected rules:
+            sudo ufw status numbered
+            sudo ufw delete <number>
+        success_msg: "UFW rules match the whitelist ({{ ufw_allow_lines | length }} ALLOW lines)."
+
+    # =========================================================================
+    # Replica count (informational — multi-replica is a legitimate scaling op)
+    # =========================================================================
+
+    - name: "[Replicas] Report compadre-stt replica count"
+      ansible.builtin.debug:
+        msg: |
+          compadre-stt replicas running: {{ tts_running_containers.stdout_lines | length }}
+          (Each replica maintains its own auth cache; cross-replica
+          invalidation propagates within the 60s TTL via the
+          {db}.invalidate sentinel.)
+
+    # =========================================================================
+    # Diagnostic informational surfaces (preserved from pre-4.4 health.yml)
+    # =========================================================================
+
+    - name: "[Diag] Caddy container state"
+      community.docker.docker_container_info:
+        name: caddy
+      register: caddy_container
+
+    - name: "[Diag] Report Caddy container not running"
+      when: not (caddy_container.exists and (caddy_container.container.State.Running | default(false)))
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Caddy reverse proxy is not running. HTTPS is down.
+          Check logs: cd ~/compadre && docker compose logs caddy
+          Restart: cd ~/compadre && docker compose up -d
+
+    - name: "[Diag] Query /health endpoint"
+      ansible.builtin.uri:
+        url: "https://{{ domain | default('localhost') }}/health"
+        validate_certs: false
+        return_content: true
+        status_code: [200, 503]
+      register: health_check
+      ignore_errors: true
+
+    - name: "[Diag] Explain Qwen3 voice is missing"
+      when:
+        - health_check is defined
+        - health_check.json is defined
+        - not (health_check.json.voices | default([]) | select('match', '^qwen/') | list | length)
+      ansible.builtin.debug:
+        msg: >-
+          INFO: No qwen/* voices are reported.
+          Either QWEN3_ENABLED is false for this host, or the qwen3-tts-cli
+          binary / model / tokenizer are not deployed correctly.
+
+    - name: "[Diag] Check root filesystem usage"
+      ansible.builtin.command:
+        cmd: df -h /
+      register: disk_usage
+      changed_when: false
+
+    - name: "[Diag] Check audio volume size"
+      ansible.builtin.command:
+        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt du -sh /audio
+      register: audio_volume_size
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[Diag] Warn on high disk usage"
+      when:
+        - disk_usage.stdout is defined
+        - >-
+          (disk_usage.stdout_lines[1] | default('')
+          | regex_search('([0-9]+)%', '\\1')
+          | default(['0']) | first | int) > 80
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Root filesystem usage is
+          {{ disk_usage.stdout | regex_search('([0-9]+%)', '\\1') | default(['unknown']) | first }}
+          (threshold: 80%).
+          Verify audio cleanup cron is active: crontab -l | grep compadre-audio-cleanup
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+
+    - name: "[Summary] All checks passed"
+      vars:
+        hc: "{{ health_check.json | default({}) }}"
+        has_health: >-
+          {{ health_check is defined
+          and health_check.json is defined
+          and health_check is not failed }}
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Compadre STT Service — All Health Checks Passed
+          ============================================
+
+          Replicas:         {{ tts_running_containers.stdout_lines | length }}
+          DB file mode:     600
+          DB parent mode:   700
+          Crons installed:  compadre-daily-suspension, compadre-keys-backup
+          Backup archives:  {{ backup_count }} present
+          UFW:              active ({{ ufw_allow_lines | length }} ALLOW lines)
+          compadre-keys health: {{ health_json.checks | length }} checks, all green
+          {% if has_health | bool %}
+          /health status:   {{ hc.status | default('unknown') }}
+          Voice count:      {{ hc.models | default([]) | length }}
+          {% endif %}
+          Disk usage:       {{ disk_usage.stdout_lines[1] | default('Unable to check') }}
+          Audio volume:     {{ audio_volume_size.stdout | default('Unable to check') }}
+
+          ============================================

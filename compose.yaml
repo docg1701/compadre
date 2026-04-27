@@ -1,0 +1,70 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/landing:/srv/www:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+    depends_on:
+      compadre-stt:
+        condition: service_healthy
+
+  compadre-stt:
+    build: .
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    expose:
+      - "8000"
+    volumes:
+      - compadre-models:/app/models:rw
+      - compadre-registry:/var/lib/compadre:rw
+    environment:
+      KEY_REGISTRY_ENCRYPTION_KEY: ${KEY_REGISTRY_ENCRYPTION_KEY:?KEY_REGISTRY_ENCRYPTION_KEY must be set}
+      KEY_REGISTRY_DB_PATH: "${KEY_REGISTRY_DB_PATH:-/var/lib/compadre/registry.db}"
+      BILLING_TIMEZONE: "${BILLING_TIMEZONE:-UTC}"
+      OPERATOR_CONTACT_HINT: "${OPERATOR_CONTACT_HINT:-}"
+      PORT: "8000"
+      COMPADRE_WHISPER_MODEL_SIZE: "${COMPADRE_WHISPER_MODEL_SIZE:-large-v3-turbo}"
+      COMPADRE_WHISPER_COMPUTE_TYPE: "${COMPADRE_WHISPER_COMPUTE_TYPE:-int8}"
+      COMPADRE_WHISPER_CPU_THREADS: "${COMPADRE_WHISPER_CPU_THREADS:-4}"
+      COMPADRE_WHISPER_LANGUAGE: "${COMPADRE_WHISPER_LANGUAGE:-pt}"
+      COMPADRE_HF_HOME: "${COMPADRE_HF_HOME:-/app/models}"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "4"
+          memory: 6G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+volumes:
+  compadre-models:
+    name: compadre-models
+  compadre-registry:
+    name: compadre-registry
+  caddy-data:
+    name: caddy-data
+  caddy-config:
+    name: caddy-config
