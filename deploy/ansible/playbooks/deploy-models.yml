@@ -97,11 +97,11 @@
       ansible.builtin.command:
         cmd: >-
           docker compose -f ~/compadre/compose.yaml run --rm
-        --entrypoint python
-        compadre-stt
-        -c
-        "from compadre.download import ensure_whisper_model; ensure_whisper_model()"
-        chdir: "~/compadre"
+          --entrypoint python
+          compadre-stt
+          -c
+          "from compadre.download import ensure_whisper_model; ensure_whisper_model()"
+          chdir: "~/compadre"
       register: download_result
       changed_when: "'already' not in (download_result.stdout | default('') | lower)"
 
@@ -113,10 +113,10 @@
       ansible.builtin.command:
         cmd: >-
           docker compose -f ~/compadre/compose.yaml run --rm
-        --entrypoint ls
-        compadre-stt
-        -la /app/models/hub/
-        chdir: "~/compadre"
+          --entrypoint ls
+          compadre-stt
+          -la /app/models/hub/
+          chdir: "~/compadre"
       register: cache_listing
       changed_when: false
       failed_when: false

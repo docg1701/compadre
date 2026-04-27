@@ -15,6 +15,7 @@ Follow these steps to deploy Compadre on a clean VPS. Assume zero pre-installed 
 - [ ] `ansible-galaxy collection install -r deploy/ansible/requirements.yml` run
 - [ ] Git repo cloned at `~/dev/compadre` (or equivalent)
 - [ ] SSH key that can reach the VPS as the ansible user
+- [ ] SSH agent running with GitHub key loaded (`ssh-add -l` shows your key) — needed for the git clone step during bootstrap. Alternatively, copy an SSH key to the VPS at `~/.ssh/id_ed25519` before running bootstrap.
 - [ ] `python3` with `cryptography` and `secrets` (stdlib) available
 
 **VPS:**
@@ -144,14 +145,21 @@ echo $?   # 0 = all healthy
 ### 10. Test Backup + Restore Round-Trip
 
 ```bash
+# Ensure secrets are exported (same as step 2).
 # Create a backup.
 ansible-playbook playbooks/backup-keys.yml -i inventory/production.yml
 
-# SSH and note the archive path from the summary output.
+# Note the archive path from the summary output (e.g.,
+# /var/lib/compadre/registry.db.backup-2026-04-27T20-50-52Z.tar.gz.enc).
 # Then restore from it:
 ansible-playbook playbooks/restore-keys.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS" \
   -e "backup_file=/var/lib/compadre/registry.db.backup-<ts>.tar.gz.enc"
 ```
+
+Both `backup-keys.yml` and `restore-keys.yml` read `COMPADRE_BACKUP_PASSPHRASE`
+from the environment. The restore playbook also requires `ansible_become_password`
+because it stops/restarts the Docker service.
 
 ### Rollback Procedure
 
@@ -167,6 +175,11 @@ To fully decommission and start over:
 ```bash
 ansible-playbook playbooks/cleanup.yml -i inventory/production.yml \
   -e "ansible_become_password=YOUR_SUDO_PASS"
+
+# Cleanup may leave a stale Docker apt source if the key was removed before
+# the source list. Before re-running bootstrap, remove it:
+ssh YOUR_USER@YOUR_VPS_IP "echo 'YOUR_SUDO_PASS' | sudo -S rm -f /etc/apt/sources.list.d/docker.list"
+
 # Then re-run bootstrap.
 ```
 
@@ -174,13 +187,13 @@ ansible-playbook playbooks/cleanup.yml -i inventory/production.yml \
 
 | Playbook | Re-run Safe? | Notes |
 |----------|-------------|-------|
-| `bootstrap.yml` | Yes | Only tasks with actual changes report `changed`. |
-| `update.yml` | Yes | Rebuilds image, restarts service. `changed` on every run (fresh build). |
-| `deploy-models.yml` | Yes | Model download is a no-op if already cached. |
-| `health.yml` | Yes | Read-only, exits 0 on all-green deployment. |
-| `backup-keys.yml` | Yes | Creates a new archive each run (different timestamp). |
-| `restore-keys.yml` | Yes | Idempotent with same `backup_file` — same DB bits, same mode. |
-| `cleanup.yml` | Yes | `state: absent` on already-removed artifacts is a no-op. |
+| `bootstrap.yml` | Yes | ~5 tasks report `changed` on every re-run (helper container create/remove, docker compose up, cron markers). Core tasks (Docker, UFW, git clone, .env, cron entries) are idempotent. |
+| `update.yml` | Yes | The `docker compose up --build` always reports `changed` (fresh build). Git pull is idempotent if no new commits. |
+| `deploy-models.yml` | Yes | Helper container tasks report `changed` each run. Model download is a no-op if already cached. |
+| `health.yml` | Yes | `changed=0` every run. Read-only, exits 0 on all-green deployment. |
+| `backup-keys.yml` | Yes | `changed=1` per run (new archive with different timestamp). Task-level idempotent. |
+| `restore-keys.yml` | Yes | `changed=5` per run (stop/start service, helper container lifecycle). DB state is idempotent with same `backup_file`. |
+| `cleanup.yml` | Yes | `state: absent` on already-removed artifacts is a no-op. Stale `docker.list` apt source may remain (see Rollback note above). |
 
 ---
 
@@ -198,7 +211,8 @@ ansible-playbook playbooks/cleanup.yml -i inventory/production.yml \
 - Ansible 2.14+ installed
 - `community.docker` Ansible collection installed
 - SSH access to the VPS
-- `KEY_REGISTRY_ENCRYPTION_KEY` environment variable set (Fernet key — see [Bootstrap](#bootstrap----first-deployment) for generation)
+- `COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY` environment variable set (Fernet key — see [Bootstrap](#bootstrap----first-deployment) for generation)
+- `COMPADRE_BACKUP_PASSPHRASE` environment variable set (≥ 16 chars, used by backup-keys.yml and restore-keys.yml)
 
 Install the required Ansible collection:
 
@@ -219,7 +233,8 @@ all:
       ansible_ssh_common_args: "-o ForwardAgent=yes"
 
   vars:
-    key_registry_encryption_key: "{{ lookup('env', 'KEY_REGISTRY_ENCRYPTION_KEY') }}"
+    key_registry_encryption_key: "{{ lookup('env', 'COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY') }}"
+    backup_passphrase: "{{ lookup('env', 'COMPADRE_BACKUP_PASSPHRASE') }}"
     operator_contact_hint: "Contact ops@example.com for billing."
     billing_timezone: "UTC"
     repo_url: "YOUR_REPO_URL"
@@ -241,7 +256,8 @@ For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/
 | --- | --- | --- |
 | `ansible_host` | Yes | VPS IP address or hostname |
 | `ansible_user` | Yes | SSH user with key-based auth |
-| `key_registry_encryption_key` | Yes | Fernet key for encrypting tax IDs at rest (reads from `KEY_REGISTRY_ENCRYPTION_KEY` env var on the control machine). Maps to the `KEY_REGISTRY_ENCRYPTION_KEY` env var inside the container. |
+| `key_registry_encryption_key` | Yes | Fernet key for encrypting tax IDs at rest (reads from `COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY` env var on the control machine). Maps to the `KEY_REGISTRY_ENCRYPTION_KEY` env var inside the container. |
+| `backup_passphrase` | Yes | Passphrase for encrypting nightly backup tarballs (reads from `COMPADRE_BACKUP_PASSPHRASE` env var on the control machine). Must be ≥ 16 characters. Maps to the `BACKUP_PASSPHRASE` env var inside the container. |
 | `operator_contact_hint` | No | Customer-facing contact string echoed in 401 hints. Maps to `OPERATOR_CONTACT_HINT`. |
 | `billing_timezone` | No | IANA timezone for billing calculations and the daily suspension sweep day-boundary (default: `UTC`). Maps to `BILLING_TIMEZONE`. **This is a contractual input** — the zone you set here dictates when a customer's `paid_until` expires and their key flips to 401; communicate it formally to customers at contract time. |
 | `repo_url` | Yes | Git repository URL |
@@ -260,7 +276,8 @@ A fresh deploy requires two playbooks in sequence:
 
 ```bash
 cd deploy/ansible
-export KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export COMPADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
 # 1. Bootstrap — installs everything, builds and starts services
 ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
@@ -314,7 +331,7 @@ Deploys Compadre on a clean Ubuntu VPS with a single command.
 ```bash
 cd deploy/ansible
 # Generate the registry encryption key (one-time).
-export KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 # IMPORTANT: Store this value in your password manager. Losing it means losing
 # the ability to decrypt every tax ID already in the registry.
 ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \

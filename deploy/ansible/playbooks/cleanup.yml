@@ -141,6 +141,15 @@
         state: absent
         filename: docker
 
+    # Belt-and-braces: the apt_repository module above can silently leave the
+    # .list file behind on some distro/version combinations. Remove the file
+    # directly so the apt cache stays clean for a subsequent bootstrap.
+    - name: "[Docker] Remove Docker apt source file (belt-and-braces)"
+      become: true
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
     - name: "[Docker] Remove Docker GPG key"
       become: true
       ansible.builtin.file:
