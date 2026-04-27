@@ -17,19 +17,19 @@
     }
 
     :root {
-      --bg: #0d1117;
-      --surface: #161b22;
-      --surface-2: #21262d;
-      --border: #30363d;
-      --border-hover: #484f58;
-      --text: #e6edf3;
-      --text-secondary: #8b949e;
-      --accent: #58a6ff;
-      --accent-hover: #79c0ff;
-      --accent-dim: rgba(88, 166, 255, 0.12);
-      --error: #f85149;
-      --error-dim: rgba(248, 81, 73, 0.12);
-      --success: #3fb950;
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --surface-2: #eaecf0;
+      --border: #d0d7de;
+      --border-hover: #8b949e;
+      --text: #1f2328;
+      --text-secondary: #656d76;
+      --accent: #0969da;
+      --accent-hover: #0550ae;
+      --accent-dim: rgba(9, 105, 218, 0.08);
+      --error: #cf222e;
+      --error-dim: rgba(207, 34, 46, 0.08);
+      --success: #1a7f37;
       --radius: 12px;
     }
 
@@ -72,7 +72,7 @@
       position: absolute;
       inset: 0;
       background-image:
-        radial-gradient(circle at 1px 1px, rgba(88, 166, 255, 0.05) 1px, transparent 0);
+        radial-gradient(circle at 1px 1px, rgba(9, 105, 218, 0.04) 1px, transparent 0);
       background-size: 40px 40px;
       pointer-events: none;
     }
@@ -83,9 +83,12 @@
     }
 
     .logo-img {
-      width: clamp(180px, 26vw, 300px);
       height: auto;
+      max-width: 300px;
       margin-bottom: 28px;
+      border-radius: 0;
+      background: transparent;
+      padding: 0;
     }
 
     .tagline {
@@ -318,7 +321,7 @@
       margin: 8px auto 0;
       padding: 13px 20px;
       background: var(--accent);
-      color: #0d1117;
+      color: #ffffff;
       border: 1px solid var(--accent-hover);
       border-radius: 8px;
       font-family: inherit;
@@ -498,7 +501,7 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      background: rgba(88, 166, 255, 0.15);
+      background: rgba(9, 105, 218, 0.1);
       color: var(--accent);
     }
 
@@ -587,7 +590,7 @@
     .footer {
       border-top: 1px solid var(--border);
       padding: 48px 0 32px;
-      background: #0a0e13;
+      background: #f6f8fa;
       margin-top: auto;
     }
 
@@ -676,22 +679,63 @@
     }
 
     @media (max-width: 600px) {
+      body {
+        font-weight: 400;
+      }
       .container {
         padding: 0 16px;
       }
       .hero {
-        padding: 40px 0 24px;
+        padding: 32px 0 20px;
+      }
+      .logo-img {
+        max-width: 300px;
+        padding: 0;
+        margin-bottom: 16px;
+        background: transparent;
+        border-radius: 0;
+      }
+      .tagline {
+        font-size: 15px;
+        color: var(--text);
+        font-weight: 400;
+        max-width: 320px;
+        margin-left: auto;
+        margin-right: auto;
+        text-wrap: pretty;
+      }
+      .tagline strong {
+        font-weight: 600;
       }
       .card {
-        padding: 24px 20px;
+        padding: 20px 16px;
         border-radius: 10px;
       }
       .form-row {
         grid-template-columns: 1fr;
-        gap: 16px;
+        gap: 12px;
+      }
+      label {
+        color: var(--text);
+        font-size: 12px;
+      }
+      .file-upload-area {
+        padding: 24px 16px;
+      }
+      .file-upload-text {
+        color: var(--text);
+        font-size: 15px;
+      }
+      .file-upload-hint {
+        color: var(--text-secondary);
+        font-size: 12px;
       }
       .section {
         padding: 32px 0 16px;
+      }
+      .section-subtitle {
+        color: var(--text);
+        font-size: 14px;
       }
       .footer {
         padding: 32px 0 24px;
@@ -705,21 +749,35 @@
       }
       .footer-text {
         max-width: 100%;
+        color: var(--text);
       }
       .footer-links {
         align-items: center;
       }
+      .footer-link {
+        color: var(--text);
+      }
+      .footer-bottom {
+        color: var(--text);
+      }
       .info-bar {
-        padding: 0 16px 20px;
+        padding: 0 16px 16px;
         gap: 6px;
       }
       .info-badge {
-        font-size: 11px;
-        padding: 5px 10px;
+        font-size: 13px;
+        padding: 6px 12px;
+        color: var(--text);
       }
       .transcription-meta {
         flex-direction: column;
         gap: 4px;
+      }
+      .endpoint-desc {
+        color: var(--text);
+      }
+      .pricing-desc, .pricing-features, .pricing-unit {
+        color: var(--text);
       }
     }
   </style>
@@ -741,19 +799,15 @@
   <div class="info-bar">
     <span class="info-badge">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm1 17h-2v-6h2v6zm0-8h-2V7h2v4z"/></svg>
-      <strong>30</strong>&nbsp;requests/min por chave
+      <strong>60</strong>&nbsp;req/min
     </span>
     <span class="info-badge">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l6.59-6.59L19 9l-8 8z"/></svg>
-      até <strong>25&nbsp;MB</strong> por arquivo
+      <strong>25&nbsp;MB</strong>&nbsp;máx
     </span>
     <span class="info-badge">
       <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z"/></svg>
-      <strong>Sem armazenamento</strong>&nbsp;de áudio
-    </span>
-    <span class="info-badge">
-      <svg viewBox="0 0 24 24"><path d="M19.77 4.93l1.4 1.4L8.43 19.07l-5.6-5.6 1.4-1.4 4.2 4.2L19.77 4.93z"/></svg>
-      <strong>faster-whisper</strong>&nbsp;large-v3
+      <strong>Sem</strong>&nbsp;armazenamento
     </span>
   </div>
 
@@ -793,9 +847,21 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="language">Idioma (código ISO 639-1)</label>
-            <input type="text" id="language" value="pt" maxlength="5"
-                   placeholder="pt">
+            <label for="language">Idioma</label>
+            <select id="language">
+              <option value="pt" selected>Português (pt)</option>
+              <option value="en">Inglês (en)</option>
+              <option value="es">Espanhol (es)</option>
+              <option value="fr">Francês (fr)</option>
+              <option value="de">Alemão (de)</option>
+              <option value="it">Italiano (it)</option>
+              <option value="ja">Japonês (ja)</option>
+              <option value="ko">Coreano (ko)</option>
+              <option value="zh">Chinês (zh)</option>
+              <option value="ru">Russo (ru)</option>
+              <option value="ar">Árabe (ar)</option>
+              <option value="hi">Hindi (hi)</option>
+            </select>
           </div>
         </div>
 
