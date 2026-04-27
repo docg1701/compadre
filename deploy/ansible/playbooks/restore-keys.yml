@@ -1,5 +1,5 @@
 ---
-# Comadre Key-Registry Restore Playbook (Story 4.3 — FR41, NFR21)
+# Compadre Key-Registry Restore Playbook (Story 4.3 — FR41, NFR21)
 #
 # Restores a previously-captured ``{KEY_REGISTRY_DB_PATH}.backup-*.tar.gz.enc``
 # archive onto the live key registry. The service is stopped briefly during
@@ -23,7 +23,7 @@
 # the archived key. It never writes to ``.env`` — the operator is in the
 # loop for that swap.
 
-- name: Restore Comadre key registry
+- name: Restore Compadre key registry
   hosts: compadre_vps
   gather_facts: false
 
@@ -70,9 +70,9 @@
       ansible.builtin.command:
         cmd: docker compose ps -q compadre-stt
         chdir: "~/compadre"
-      register: tts_service_ps
+      register: compadre_service_ps
       changed_when: false
-      failed_when: tts_service_ps.stdout | length == 0
+      failed_when: compadre_service_ps.stdout | length == 0
 
     # F4 — backup_file is operator-supplied via ``-e backup_file=...`` and
     # must NEVER be interpolated raw into a shell command. Pass it through
@@ -252,7 +252,7 @@
       ansible.builtin.debug:
         msg: |
           ============================================
-          Comadre Key-Registry Restore — Complete
+          Compadre Key-Registry Restore — Complete
           ============================================
 
           Archive:        {{ backup_file }}

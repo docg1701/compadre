@@ -14,11 +14,11 @@ Compadre is configured via environment variables. All variables are loaded at st
 | `OPERATOR_CONTACT_HINT` | `Contact your Compadre operator for billing.` | Operator contact string echoed in 401 hints for suspended / revoked / past-due keys. Keep it short and customer-facing. | `Contact ops@acme.example for billing.` |
 | `BILLING_TIMEZONE` | `UTC` | IANA timezone used for billing-day calculations (first-charge dates, `paid_until` comparisons, stamped note dates) and the daily suspension sweep's day-boundary. Must be a valid zone; startup fails otherwise. **MUST match the `CRON_TZ` envvar set by `deploy/ansible/playbooks/bootstrap.yml`** (sourced from the inventory's `billing_timezone` variable) — drift between the two silently shifts the daily suspension sweep's "today" computation relative to the cron schedule. **Billing-TZ is a contractual input**: whichever zone this variable holds dictates when a customer's `paid_until` expires and their API key flips to 401. Operators MUST communicate the chosen zone to customers at contract time and avoid changing it post-onboarding (a change silently shifts when existing keys go past-due). Default `UTC` is the operator-neutral, internationally predictable choice; override only when you have formally informed the customer base. See also: `compadre-keys mark-paid`, `compadre-keys suspend`, `compadre-keys reactivate` for the operator-hand billing verbs; `compadre-keys at-risk`, `compadre-keys revenue` read the reporting month / look-ahead window in this timezone; `compadre-keys suspend-sweep` is the manual/dry-run entry point for the daily auto-suspension cron. | `America/Sao_Paulo` |
 | `BILLING_DAY` | `5` | Day-of-month (1–28) for monthly billing sweeps. Kept inside 1..28 so every month has the date. | `10` |
-| `COMPADRE_WHISPER_MODEL_SIZE` | `large-v3-turbo` | faster-whisper model size. Only `large-v3-turbo` is supported in MVP. | `large-v3-turbo` |
-| `COMPADRE_WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute type for CPU inference. `int8` is the default for CPU-only deployments. | `int8` |
-| `COMPADRE_WHISPER_CPU_THREADS` | `4` | Number of CPU threads for Whisper inference (≥1). Matches 4 vCPU reference hardware. | `4` |
-| `COMPADRE_WHISPER_LANGUAGE` | `pt` | Default transcription language. ISO 639-1 code (`pt`, `en`, `es`, etc.). Set to empty string for auto-detect. Omitting the env var uses `pt`. | `pt` |
-| `COMPADRE_HF_HOME` | `./data/cache/huggingface` | HuggingFace Hub cache directory for model auto-download. For air-gapped deployments, pre-seed this directory. | `/app/models` |
+| `WHISPER_MODEL_SIZE` | `large-v3-turbo` | faster-whisper model size. Only `large-v3-turbo` is supported in MVP. | `large-v3-turbo` |
+| `WHISPER_COMPUTE_TYPE` | `int8` | CTranslate2 compute type for CPU inference. `int8` is the default for CPU-only deployments. | `int8` |
+| `WHISPER_CPU_THREADS` | `4` | Number of CPU threads for Whisper inference (≥1). Matches 4 vCPU reference hardware. | `4` |
+| `WHISPER_LANGUAGE` | `pt` | Default transcription language. ISO 639-1 code (`pt`, `en`, `es`, etc.). Set to empty string for auto-detect. Omitting the env var uses `pt`. | `pt` |
+| `HF_HOME` | `./data/cache/huggingface` | HuggingFace Hub cache directory for model auto-download. For air-gapped deployments, pre-seed this directory. | `/app/models` |
 | `MAX_UPLOAD_SIZE_MB` | `25` | Maximum audio upload size in megabytes (1–100). Enforced by FastAPI middleware and Caddy bounded-payload policy. | `25` |
 | `MAX_AUDIO_DURATION_SECONDS` | `600` | Maximum audio duration in seconds (≥1). Enforced by `ffprobe` before engine invocation. | `600` |
 | `PORT` | `8000` | HTTP port for the FastAPI server (1..65535). Exposed only inside the Docker network — Caddy fronts 80/443. | `9000` |
@@ -60,11 +60,11 @@ compadre-stt:
     OPERATOR_CONTACT_HINT: "${OPERATOR_CONTACT_HINT:-Contact your Compadre operator for billing.}"
     BILLING_TIMEZONE: "${BILLING_TIMEZONE:-UTC}"
     BILLING_DAY: "${BILLING_DAY:-5}"
-    COMPADRE_WHISPER_MODEL_SIZE: "${COMPADRE_WHISPER_MODEL_SIZE:-large-v3-turbo}"
-    COMPADRE_WHISPER_COMPUTE_TYPE: "${COMPADRE_WHISPER_COMPUTE_TYPE:-int8}"
-    COMPADRE_WHISPER_CPU_THREADS: "${COMPADRE_WHISPER_CPU_THREADS:-4}"
-    COMPADRE_WHISPER_LANGUAGE: "${COMPADRE_WHISPER_LANGUAGE:-pt}"
-    COMPADRE_HF_HOME: "${COMPADRE_HF_HOME:-/app/models}"
+    WHISPER_MODEL_SIZE: "${WHISPER_MODEL_SIZE:-large-v3-turbo}"
+    WHISPER_COMPUTE_TYPE: "${WHISPER_COMPUTE_TYPE:-int8}"
+    WHISPER_CPU_THREADS: "${WHISPER_CPU_THREADS:-4}"
+    WHISPER_LANGUAGE: "${WHISPER_LANGUAGE:-pt}"
+    HF_HOME: "${HF_HOME:-/app/models}"
     MAX_UPLOAD_SIZE_MB: "${MAX_UPLOAD_SIZE_MB:-25}"
     MAX_AUDIO_DURATION_SECONDS: "${MAX_AUDIO_DURATION_SECONDS:-600}"
     PORT: "8000"
@@ -106,14 +106,14 @@ OPERATOR_CONTACT_HINT=
 DOMAIN=localhost
 
 # Default transcription language (ISO 639-1). Leave empty for auto-detect.
-COMPADRE_WHISPER_LANGUAGE=pt
+WHISPER_LANGUAGE=pt
 
 # HuggingFace Hub cache directory for model auto-download.
-COMPADRE_HF_HOME=/app/models
+HF_HOME=/app/models
 
 # Max upload size (MB) and max audio duration (seconds).
 MAX_UPLOAD_SIZE_MB=25
 MAX_AUDIO_DURATION_SECONDS=600
 ```
 
-Advanced overrides (`COMPADRE_WHISPER_MODEL_SIZE`, `COMPADRE_WHISPER_COMPUTE_TYPE`, `COMPADRE_WHISPER_CPU_THREADS`, `BILLING_DAY`, `BILLING_TIMEZONE`, `PORT`) accept the defaults in the table above and can be set in `.env` only when a deployment needs to deviate.
+Advanced overrides (`WHISPER_MODEL_SIZE`, `WHISPER_COMPUTE_TYPE`, `WHISPER_CPU_THREADS`, `BILLING_DAY`, `BILLING_TIMEZONE`, `PORT`) accept the defaults in the table above and can be set in `.env` only when a deployment needs to deviate.

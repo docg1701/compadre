@@ -48,15 +48,18 @@ all:
     # Operator contact string shown in CLI error messages (e.g. your ops email).
     operator_contact_hint: ""
 
-    # Optional: local directory containing kokoro/ subdir with voice files
-    voices_local_dir: "{{ playbook_dir }}/../../../voices"
+    # Whisper STT engine configuration (defaults shown — uncomment to override).
+    # The bootstrap playbook writes these into ~/compadre/.env; compose.yaml
+    # reads them through ${WHISPER_MODEL_SIZE:-...} substitution.
+    # whisper_model_size: "large-v3-turbo"
+    # whisper_compute_type: "int8"
+    # whisper_cpu_threads: 4
+    whisper_language: "pt"
+    hf_home: "/app/models"
 
     # Git repository URL and branch to clone on the VM
-    repo_url: "git@github.com:docg1701/comadre.git"
-    repo_branch: "master"
-
-    # Default voice for TTS when none specified
-    default_voice: "kokoro/pm_santa"
+    repo_url: "git@github.com:docg1701/compadre.git"
+    repo_branch: "main"
 
     # Real domain → Caddy provisions Let's Encrypt cert via ACME HTTP-01
     domain: "CHANGE_ME.duckdns.org"
@@ -75,17 +78,3 @@ all:
     # interpreted in that specific zone — changing this value after customers
     # are onboarded shifts when their keys flip to 401 on the billing day.
     billing_timezone: "UTC"
-
-    # Kokoro model download URLs (auto-download on first startup)
-    kokoro_model_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-    kokoro_voices_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-
-    # Qwen3 disabled — the prebuilt qwen3-tts-cli binary is x86_64-only
-    # and cannot run on aarch64. Kokoro covers ~99% of real workload anyway.
-    qwen3_enabled: false
-    qwen3_model_url: ""
-    qwen3_tokenizer_url: ""
-
-    # Not used when qwen3_enabled is false
-    qwen3_model_local: ""
-    qwen3_tokenizer_local: ""

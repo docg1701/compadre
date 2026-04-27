@@ -390,18 +390,6 @@
     # Cron Jobs
     # =========================================================================
 
-    - name: "[Cron] Configure audio cleanup every 6 hours"
-      ansible.builtin.cron:
-        name: "compadre-audio-cleanup"
-        minute: "0"
-        hour: "*/6"
-        job: >-
-          cd ~/compadre &&
-          docker compose exec -T compadre-stt find /audio -type f
-          \( -name '*.ogg' -o -name '*.wav' \)
-          -mmin +1440 -delete 2>/dev/null
-          || logger -t compadre-cleanup 'audio cleanup failed — service may be down'
-
     - name: "[Cron] Set CRON_TZ for billing-aware schedules"
       ansible.builtin.cron:
         name: "CRON_TZ"
@@ -578,10 +566,9 @@
           Then test the returned key (shown once at issuance):
           curl -k -X POST \
             -H "Authorization: Bearer <issued-key>" \
-            -H "Content-Type: application/json" \
-            https://{{ ansible_host }}/v1/audio/transcriptions \
-            -d '{"input":"Olá mundo","voice":"kokoro/pm_santa"}' \
-            --output test.ogg
+            -F "file=@audio.opus" \
+            -F "language=pt" \
+            https://{{ ansible_host }}/v1/audio/transcriptions
 
           ============================================
 

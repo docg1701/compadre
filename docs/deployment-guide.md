@@ -2,7 +2,187 @@
 
 Full lifecycle management for Compadre STT service using Ansible playbooks.
 
-**Last updated:** 2026-04-26
+**Last updated:** 2026-04-27
+
+## Fresh Deploy Runbook
+
+Follow these steps to deploy Compadre on a clean VPS. Assume zero pre-installed software beyond the base OS and SSH.
+
+### 1. Prerequisites Checklist
+
+**Control machine** (your laptop/workstation):
+- [ ] Ansible 2.14+ installed (`ansible --version`)
+- [ ] `ansible-galaxy collection install -r deploy/ansible/requirements.yml` run
+- [ ] Git repo cloned at `~/dev/compadre` (or equivalent)
+- [ ] SSH key that can reach the VPS as the ansible user
+- [ ] `python3` with `cryptography` and `secrets` (stdlib) available
+
+**VPS:**
+- [ ] Debian 12+ or Ubuntu 22.04+
+- [ ] SSH key access configured for the ansible user
+- [ ] User has passwordless sudo OR the sudo password is known
+- [ ] Ports 22, 80, 443 reachable from the public internet
+
+### 2. Generate Secrets
+
+On your control machine, generate two secrets. Store both in your password manager —
+losing the encryption key means losing every tax ID in the registry.
+
+```bash
+# Fernet key for encrypting tax IDs at rest (REQUIRED).
+export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python3 -c \
+  'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+
+# Passphrase for encrypting nightly backup tarballs (REQUIRED, ≥ 16 chars).
+export COMPADRE_BACKUP_PASSPHRASE="$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(32))')"
+```
+
+### 3. Configure Inventory
+
+```bash
+cd deploy/ansible
+
+# Copy the example and edit for your VPS.
+cp inventory/production.yml.example inventory/production.yml
+```
+
+Edit `inventory/production.yml` and set at minimum:
+
+```yaml
+ansible_host: "YOUR_VPS_IP"
+ansible_user: "YOUR_SSH_USER"
+repo_url: "git@github.com:YOUR_USER/compadre.git"  # or your fork URL
+repo_branch: "main"
+domain: "YOUR_VPS_IP"  # or real DNS for Let's Encrypt
+billing_timezone: "UTC"  # or "America/Sao_Paulo" etc.
+```
+
+All other vars have sensible defaults (see the inventory file comments).
+
+### 4. Install Ansible Collections
+
+```bash
+ansible-galaxy collection install -r requirements.yml
+```
+
+### 5. Verify SSH + Inventory
+
+```bash
+# Confirm SSH works.
+ssh YOUR_SSH_USER@YOUR_VPS_IP "echo ok && cat /etc/os-release | head -3"
+
+# Confirm inventory parses correctly.
+ansible-inventory -i inventory/production.yml --list --yaml | head -20
+```
+
+### 6. Run Bootstrap
+
+```bash
+ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS"
+```
+
+Bootstrap installs Docker, UFW, clones the repo, builds the image, starts the
+service, creates cron jobs, and waits for `/health` to report `healthy`.
+First-run model download from HuggingFace takes 1–2 minutes on a 100 Mbps link;
+the health-check wait loop absorbs this (180 retries × 10 s = 30 min).
+
+**Expected output on success:**
+
+```text
+TASK [[Summary] Report deployment status]
+============================================
+Compadre STT Service — Bootstrap Complete
+============================================
+
+Service Status:  healthy
+Loaded Models:   large-v3-turbo
+============================================
+```
+
+### 7. Verify Service
+
+```bash
+# Health check.
+curl -k https://YOUR_VPS_IP/health
+# → {"status": "healthy", "models": ["large-v3-turbo"]}
+
+# Transcription test (after issuing a key — see step 8).
+curl -k -X POST \
+  -H "Authorization: Bearer <issued-key>" \
+  -F "file=@audio.opus" \
+  -F "language=pt" \
+  https://YOUR_VPS_IP/v1/audio/transcriptions
+```
+
+### 8. Issue First API Key
+
+```bash
+ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
+  compadre-keys create-customer \
+    --name 'First Customer' \
+    --email ops@example.com \
+    --cpf 11144477735"
+# → cust_01JABC...
+
+ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
+  compadre-keys issue-key \
+    --customer cust_01JABC... \
+    --rpm 60 \
+    --price 149"
+# → cmpd_live_XXXXXXXXXXXXX   (printed once — copy it now)
+```
+
+### 9. Run Health Assertions
+
+```bash
+ansible-playbook playbooks/health.yml -i inventory/production.yml
+echo $?   # 0 = all healthy
+```
+
+### 10. Test Backup + Restore Round-Trip
+
+```bash
+# Create a backup.
+ansible-playbook playbooks/backup-keys.yml -i inventory/production.yml
+
+# SSH and note the archive path from the summary output.
+# Then restore from it:
+ansible-playbook playbooks/restore-keys.yml -i inventory/production.yml \
+  -e "backup_file=/var/lib/compadre/registry.db.backup-<ts>.tar.gz.enc"
+```
+
+### Rollback Procedure
+
+If bootstrap fails mid-way, the playbook is idempotent — re-run it:
+
+```bash
+ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS"
+```
+
+To fully decommission and start over:
+
+```bash
+ansible-playbook playbooks/cleanup.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS"
+# Then re-run bootstrap.
+```
+
+### Idempotency Notes
+
+| Playbook | Re-run Safe? | Notes |
+|----------|-------------|-------|
+| `bootstrap.yml` | Yes | Only tasks with actual changes report `changed`. |
+| `update.yml` | Yes | Rebuilds image, restarts service. `changed` on every run (fresh build). |
+| `deploy-models.yml` | Yes | Model download is a no-op if already cached. |
+| `health.yml` | Yes | Read-only, exits 0 on all-green deployment. |
+| `backup-keys.yml` | Yes | Creates a new archive each run (different timestamp). |
+| `restore-keys.yml` | Yes | Idempotent with same `backup_file` — same DB bits, same mode. |
+| `cleanup.yml` | Yes | `state: absent` on already-removed artifacts is a no-op. |
+
+---
 
 ## Prerequisites
 
@@ -46,11 +226,11 @@ all:
     repo_branch: "master"
     domain: "localhost"
     landing_enabled: true
-    compadre_whisper_model_size: "large-v3-turbo"
-    compadre_whisper_compute_type: "int8"
-    compadre_whisper_cpu_threads: 4
-    compadre_whisper_language: "pt"
-    compadre_hf_home: "/app/models"
+    whisper_model_size: "large-v3-turbo"
+    whisper_compute_type: "int8"
+    whisper_cpu_threads: 4
+    whisper_language: "pt"
+    hf_home: "/app/models"
 ```
 
 For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/oracle.yml.example` as a starting point instead. It configures a real domain for Let's Encrypt certificates.
@@ -68,11 +248,11 @@ For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/
 | `repo_branch` | No | Branch to deploy (default: `master`) |
 | `domain` | No | Domain for Caddy HTTPS (default: `localhost` for self-signed). Set to a real domain for Let's Encrypt auto-cert. |
 | `landing_enabled` | No | Deploy the public landing page at the root URL (default: `true`). When false, Caddy uses `Caddyfile-no-landing` which proxies all paths to the API. The API endpoints (`/v1/*`, `/health`, etc.) are always available regardless. |
-| `compadre_whisper_model_size` | No | faster-whisper model size (default: `large-v3-turbo`). |
-| `compadre_whisper_compute_type` | No | CTranslate2 compute type (default: `int8`). |
-| `compadre_whisper_cpu_threads` | No | CPU threads for Whisper inference (default: `4`). |
-| `compadre_whisper_language` | No | Default transcription language (default: `pt`). |
-| `compadre_hf_home` | No | HuggingFace Hub cache directory (default: `/app/models`). |
+| `whisper_model_size` | No | faster-whisper model size (default: `large-v3-turbo`). |
+| `whisper_compute_type` | No | CTranslate2 compute type (default: `int8`). |
+| `whisper_cpu_threads` | No | CPU threads for Whisper inference (default: `4`). |
+| `whisper_language` | No | Default transcription language (default: `pt`). |
+| `hf_home` | No | HuggingFace Hub cache directory (default: `/app/models`). |
 
 ## Complete Deployment Flow
 
@@ -631,7 +811,6 @@ The bootstrap playbook installs three user-level cron jobs and a `CRON_TZ` envva
 
 - `compadre-daily-suspension` -- 00:30 in `billing_timezone`, suspends keys whose `paid_until` has elapsed
 - `compadre-keys-backup` -- 02:00 in `billing_timezone` (configurable via `backup_hour`), captures an encrypted snapshot of the key registry; archives older than `backup_retention_days` are pruned
-- `compadre-audio-cleanup` -- every 6 hours, deletes generated audio files older than 24 hours (legacy from the prior TTS project; harmless on STT deployments where no audio is generated)
 - `CRON_TZ` envvar -- pins the cron daemon's timezone to `billing_timezone` so the suspension sweep and backup fire at the configured local hour
 
 Verify cron is active:

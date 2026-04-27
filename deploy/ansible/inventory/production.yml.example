@@ -47,25 +47,31 @@ all:
     # Operator contact string shown in CLI error messages (e.g. your ops email).
     operator_contact_hint: ""
 
-    # Optional: local directory containing kokoro/ and qwen/ subdirs with voice files
-    # Used by deploy-voices.yml playbook. Leave empty to skip voice deployment.
-    # See docs/voice-management.md for directory structure.
-    voices_local_dir: ""
-
     # Git repository URL and branch to clone on the VPS
     repo_url: "CHANGE_ME"
     repo_branch: "master"
 
-    # Default voice for TTS when none specified (format: engine/name)
-    default_voice: "kokoro/pm_santa"
+    # Whisper STT engine configuration (defaults shown — uncomment to override).
+    # The bootstrap playbook writes these into ~/compadre/.env; compose.yaml
+    # reads them through ${WHISPER_MODEL_SIZE:-...} substitution.
+    # whisper_model_size: "large-v3-turbo"
+    # whisper_compute_type: "int8"
+    # whisper_cpu_threads: 4
 
-    # Domain for HTTPS (Caddy auto-provisions Let's Encrypt cert)
-    # Use "localhost" for self-signed cert on private networks
+    # Default transcription language (ISO 639-1). "pt" for Portuguese; empty for auto-detect.
+    whisper_language: "pt"
+
+    # HuggingFace Hub cache directory inside the container.
+    # The compadre-models volume is mounted at /app/models.
+    hf_home: "/app/models"
+
+    # Domain for HTTPS (Caddy auto-provisions Let's Encrypt cert on real DNS).
+    # Use "localhost" for a self-signed cert on private networks.
     domain: "localhost"
 
     # Public landing page at https://<domain>/ — when true (default), Caddy
     # serves a self-contained HTML form at the root path that lets anyone
-    # with a valid API key try Comadre from a browser. Set to false on
+    # with a valid API key try Compadre from a browser. Set to false on
     # internal/private deployments where you don't want a public face;
     # the API endpoints under /v1/* and /health are always served either way.
     landing_enabled: true
@@ -80,21 +86,3 @@ all:
     # interpreted in that specific zone — changing this value after customers
     # are onboarded shifts when their keys flip to 401 on the billing day.
     billing_timezone: "UTC"
-
-    # Kokoro model download URLs (auto-download on first startup)
-    kokoro_model_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-    kokoro_voices_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-
-    # Enable Qwen3 engine. Set to false on hosts where the x86_64 binary
-    # cannot run (e.g. aarch64 / Oracle Cloud Ampere A1). When false, Qwen3
-    # model download, load, and warm-up are skipped at startup.
-    qwen3_enabled: true
-
-    # Qwen3 GGUF model download URLs (auto-download on first startup)
-    qwen3_model_url: "https://huggingface.co/PabloHoties/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/qwen3-tts-0.6b-q8_0.gguf"
-    qwen3_tokenizer_url: "https://huggingface.co/PabloHoties/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/qwen3-tts-tokenizer-f16.gguf"
-
-    # Optional: local paths to pre-converted Qwen3 GGUF model files
-    # If set, deploy-models.yml copies these to the VPS instead of downloading
-    qwen3_model_local: ""
-    qwen3_tokenizer_local: ""

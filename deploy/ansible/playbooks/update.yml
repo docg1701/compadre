@@ -1,10 +1,10 @@
 ---
-# Comadre Update Playbook
-# Updates a running Comadre deployment from the latest repo:
+# Compadre Update Playbook
+# Updates a running Compadre deployment from the latest repo:
 #   ansible-playbook playbooks/update.yml -i inventory/production.yml
 #
 # Assumes bootstrap.yml has already been run. Entirely unprivileged — no become: true.
-# Data in Docker volumes (models, voices, audio) is preserved across rebuilds.
+# Data in Docker volumes (models, registry) is preserved across rebuilds.
 
 - name: Update Compadre STT Service
   hosts: compadre_vps
@@ -15,7 +15,7 @@
     # Prerequisites
     # =========================================================================
 
-    - name: "[Prereq] Verify Comadre directory exists"
+    - name: "[Prereq] Verify Compadre directory exists"
       ansible.builtin.stat:
         path: "~/compadre"
       register: compadre_dir
@@ -28,23 +28,23 @@
         fail_msg: >-
           ~/compadre directory does not exist.
           Run bootstrap.yml first to deploy the service.
-        success_msg: "Comadre directory found."
+        success_msg: "Compadre directory found."
 
     - name: "[Prereq] Verify service is running"
       ansible.builtin.command:
         cmd: docker compose -f ~/compadre/compose.yaml ps -q --status running compadre-stt
-      register: tts_running_containers
+      register: compadre_running_containers
       changed_when: false
 
     - name: "[Prereq] Fail if service is not running"
       ansible.builtin.assert:
         that:
-          - tts_running_containers.stdout_lines | length > 0
+          - compadre_running_containers.stdout_lines | length > 0
         fail_msg: >-
-          Comadre service has no running containers.
+          Compadre service has no running containers.
           Investigate why the service is down before attempting an update.
           Check logs with: cd ~/compadre && docker compose logs
-        success_msg: "Comadre service is running."
+        success_msg: "Compadre service is running."
 
     # =========================================================================
     # Git Pull
@@ -103,7 +103,7 @@
     # Service Rebuild & Restart
     # =========================================================================
 
-    - name: "[TTS] Rebuild image and restart all services"
+    - name: "[STT] Rebuild image and restart all services"
       community.docker.docker_compose_v2:
         project_src: "~/compadre"
         state: present
@@ -163,7 +163,7 @@
           Model Count:     {{ hc.models | default([]) | length }}
           HTTPS URL:       https://{{ ansible_host }}
 
-          Data preserved:  Volumes (models, voices, audio, registry) intact
+          Data preserved:  Volumes (models, registry) intact
           Config:          Missing env vars added from .env.example
 
           ============================================

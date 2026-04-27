@@ -1,6 +1,6 @@
 ---
-# Comadre Cleanup Playbook — Full Decommission
-# Removes ALL Comadre artifacts AND system-level components installed by
+# Compadre Cleanup Playbook — Full Decommission
+# Removes ALL Compadre artifacts AND system-level components installed by
 # bootstrap (Docker, UFW, apt repos, GPG keys). Returns the VPS to its
 # pre-bootstrap state.
 #
@@ -20,7 +20,7 @@
     # Prerequisites
     # =========================================================================
 
-    - name: "[Prereq] Check Comadre directory exists"
+    - name: "[Prereq] Check Compadre directory exists"
       ansible.builtin.stat:
         path: "~/compadre"
       register: compadre_dir
@@ -29,7 +29,7 @@
     # Stop and Remove Containers + Volumes (requires ~/compadre + Docker)
     # =========================================================================
 
-    - name: "[TTS] Stop and remove containers, volumes, and images"
+    - name: "[STT] Stop and remove containers, volumes, and images"
       when: compadre_dir.stat.exists and compadre_dir.stat.isdir
       community.docker.docker_compose_v2:
         project_src: "~/compadre"
@@ -52,16 +52,6 @@
     # =========================================================================
     # Remove Cron Jobs
     # =========================================================================
-
-    - name: "[Cron] Remove daily restart cron"
-      ansible.builtin.cron:
-        name: "compadre-daily-restart"
-        state: absent
-
-    - name: "[Cron] Remove audio cleanup cron"
-      ansible.builtin.cron:
-        name: "compadre-audio-cleanup"
-        state: absent
 
     - name: "[Cron] Remove daily suspension sweep"
       ansible.builtin.cron:
@@ -88,7 +78,7 @@
     # Remove Project Directory
     # =========================================================================
 
-    - name: "[Cleanup] Remove Comadre directory"
+    - name: "[Cleanup] Remove Compadre directory"
       ansible.builtin.file:
         path: "~/compadre"
         state: absent
@@ -225,9 +215,9 @@
           Application artifacts removed:
 
             ✓ Containers stopped and removed (compadre-stt replicas, caddy)
-            ✓ Docker volumes removed (models, voices, audio, caddy-data, caddy-config)
+            ✓ Docker volumes removed (models, registry, caddy-data, caddy-config)
             ✓ Docker images and build cache pruned
-            ✓ Cron jobs removed (daily-restart, audio-cleanup, daily-suspension, keys-backup, CRON_TZ)
+            ✓ Cron jobs removed (daily-suspension, keys-backup, CRON_TZ)
             ✓ ~/compadre directory removed
 
           System-level components uninstalled:

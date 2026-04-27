@@ -1,5 +1,5 @@
 ---
-# Comadre Key-Registry Backup Playbook (Story 4.3 — FR40, NFR14, NFR22)
+# Compadre Key-Registry Backup Playbook (Story 4.3 — FR40, NFR14, NFR22)
 #
 # Creates a nightly-consistent encrypted snapshot of the SQLite key registry
 # + its Fernet encryption key, writes it to the DB's parent directory, and
@@ -26,7 +26,7 @@
 # (different ISO timestamp). The playbook's contract is "create a fresh
 # archive"; re-running is re-snapshotting, not a no-op.
 
-- name: Backup Comadre key registry
+- name: Backup Compadre key registry
   hosts: compadre_vps
   gather_facts: false
 
@@ -79,9 +79,9 @@
       ansible.builtin.command:
         cmd: docker compose ps -q compadre-stt
         chdir: "~/compadre"
-      register: tts_service_ps
+      register: compadre_service_ps
       changed_when: false
-      failed_when: tts_service_ps.stdout | length == 0
+      failed_when: compadre_service_ps.stdout | length == 0
 
     # =========================================================================
     # Backup Execution
@@ -184,7 +184,7 @@
       ansible.builtin.debug:
         msg: |
           ============================================
-          Comadre Key-Registry Backup — Complete
+          Compadre Key-Registry Backup — Complete
           ============================================
 
           Archive:        {{ newest_archive.stdout | trim }}

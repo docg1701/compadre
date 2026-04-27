@@ -1,17 +1,29 @@
 ---
-# Compadre Model Deployment Playbook
-# Ensures the Whisper model cache directory is ready in the compadre-models
-# Docker volume. The actual model (large-v3-turbo, ~1.5 GB) is downloaded
-# automatically by faster-whisper on first container start via
-# huggingface_hub.
+# Compadre Whisper Model Deployment Playbook
+# Pre-seeds the faster-whisper large-v3-turbo model (~1.5 GB) in the
+# compadre-models Docker volume before the service starts. Without this
+# playbook the model auto-downloads on first container start (delaying
+# initial readiness by 1-2 minutes on a 100 Mbps link); running this
+# playbook BEFORE bootstrap.yml means the service starts with the model
+# already cached.
 #
 #   ansible-playbook playbooks/deploy-models.yml -i inventory/production.yml
 #
-# Can be run independently of bootstrap/update: initial deploy, re-deploy after
-# volume loss, or to verify model cache integrity.
+# Mode B (one-shot download trigger) — the only mode implemented in MVP.
+# Runs a temporary ``docker compose run`` container that invokes
+# ``ensure_whisper_model()`` from ``src/compadre/download.py``, which
+# calls ``huggingface_hub.snapshot_download`` to pull the model from
+# HuggingFace Hub into the compadre-models volume. The temp container is
+# removed automatically (--rm).
+#
+# Mode A (air-gapped pre-seed via SCP from operator's local HF cache)
+# is documented as future work below. For now, air-gapped deployments
+# should run this playbook on a build host with internet access and then
+# rsync the compadre-models volume contents to the air-gapped VPS.
+#
 # Entirely unprivileged — no become: true.
 
-- name: Prepare Whisper Model Cache
+- name: Pre-seed Whisper Model Cache
   hosts: compadre_vps
   gather_facts: true
 
@@ -36,7 +48,7 @@
         success_msg: "Compadre directory found."
 
     # =========================================================================
-    # Model Cache Directory
+    # Model Cache Directory (idempotent — needed before download)
     # =========================================================================
 
     - name: "[Models] Ensure model cache directory exists in volume"
@@ -67,6 +79,49 @@
             state: absent
 
     # =========================================================================
+    # Mode B — One-shot download trigger
+    # =========================================================================
+    # Runs ``docker compose run --rm`` with the compadre-stt service
+    # definition. The container inherits the env block from compose.yaml
+    # (including HF_HOME → /app/models) and mounts the compadre-models
+    # volume at /app/models. The ``--rm`` flag removes the container after
+    # the command completes.
+    #
+    # The download function in ``src/compadre/download.py`` calls
+    # ``huggingface_hub.snapshot_download`` for the
+    # ``mobiuslabsgmbh/faster-whisper-large-v3-turbo`` repo (~1.5 GB).
+    # If the model is already cached the function is a no-op (Hub client
+    # checks local cache before downloading).
+
+    - name: "[Download] Trigger Whisper model download via compose run"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml run --rm
+        --entrypoint python
+        compadre-stt
+        -c
+        "from compadre.download import ensure_whisper_model; ensure_whisper_model()"
+        chdir: "~/compadre"
+      register: download_result
+      changed_when: "'already' not in (download_result.stdout | default('') | lower)"
+
+    # =========================================================================
+    # Verify
+    # =========================================================================
+
+    - name: "[Verify] List model cache contents"
+      ansible.builtin.command:
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml run --rm
+        --entrypoint ls
+        compadre-stt
+        -la /app/models/hub/
+        chdir: "~/compadre"
+      register: cache_listing
+      changed_when: false
+      failed_when: false
+
+    # =========================================================================
     # Summary
     # =========================================================================
 
@@ -74,20 +129,50 @@
       ansible.builtin.debug:
         msg: |
           ============================================
-          Compadre — Whisper Model Cache Ready
+          Compadre — Whisper Model Cache Pre-seeded
           ============================================
 
-          Model cache directory prepared in compadre-models volume:
-            /models/hub
+          Model:          large-v3-turbo (~1.5 GB, int8 quantized)
+          Repo:           mobiuslabsgmbh/faster-whisper-large-v3-turbo
+          Cache volume:   compadre-models → /app/models
+          HF_HOME:        /app/models
 
-          The Whisper model (large-v3-turbo, ~1.5 GB) will be downloaded
-          automatically by faster-whisper on the next container start.
+          Cache contents:
+          {{ cache_listing.stdout | default('(unable to list — container may need image build first)') }}
 
-          HF_HOME is set to /app/models in compose.yaml, which maps to
-          the compadre-models volume.
+          After bootstrap, verify the model is loaded:
+            curl -k https://{{ ansible_host }}/health
+            # → {"status": "healthy", "models": ["large-v3-turbo"]}
 
-          To force a fresh download, remove the cache and restart:
+          To force a fresh download:
             docker compose exec compadre-stt rm -rf /app/models/hub
             docker compose restart compadre-stt
 
           ============================================
+
+    # =========================================================================
+    # Mode A — Air-gapped pre-seed from operator's local HF cache (future work)
+    # =========================================================================
+    # For air-gapped deployments where the VPS has no outbound internet:
+    #
+    # 1. On a build host with internet access, run:
+    #      pip install huggingface_hub
+    #      python -c "
+    #      from huggingface_hub import snapshot_download
+    #      snapshot_download('mobiuslabsgmbh/faster-whisper-large-v3-turbo',
+    #                        cache_dir='./hf-cache')
+    #      "
+    #
+    # 2. Compress and SCP the cache to the VPS:
+    #      tar -czf whisper-cache.tar.gz -C hf-cache .
+    #      scp whisper-cache.tar.gz galvani@<vps>:~/
+    #
+    # 3. On the VPS, extract into the compadre-models volume:
+    #      docker compose -f ~/compadre/compose.yaml run --rm
+    #        -v ~/whisper-cache.tar.gz:/tmp/cache.tar.gz:ro
+    #        compadre-stt bash -c
+    #        'tar -xzf /tmp/cache.tar.gz -C /app/models/hub/'
+    #
+    # The directory structure inside /app/models/hub/ must match what
+    # huggingface_hub expects: a ``models--mobiuslabsgmbh--faster-whisper-large-v3-turbo``
+    # directory with ``snapshots/`` and ``refs/`` subdirectories.

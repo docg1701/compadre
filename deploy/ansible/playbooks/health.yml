@@ -1,5 +1,5 @@
 ---
-# Comadre Operational Health Assertion Playbook (Story 4.4)
+# Compadre Operational Health Assertion Playbook (Story 4.4)
 # Single command to verify the deployment is in its expected state:
 #   ansible-playbook playbooks/health.yml -i inventory/production.yml
 #
@@ -24,8 +24,8 @@
 # UFW assertion uses ``become: true`` for the ``ufw status`` read.
 # Everything else is unprivileged.
 #
-# Diagnostic surfaces (container running, /health endpoint, disk usage,
-# voice list) are preserved as informational pre-checks so operators get
+# Diagnostic surfaces (container running, /health endpoint, disk usage)
+# are preserved as informational pre-checks so operators get
 # the same diagnostic output they had before Story 4.4 — but the new
 # assertion chain is the trustworthy "is the deployment safe?" boolean.
 
@@ -38,12 +38,12 @@
     # Prerequisites
     # =========================================================================
 
-    - name: "[Prereq] Check Comadre directory exists"
+    - name: "[Prereq] Check Compadre directory exists"
       ansible.builtin.stat:
         path: "~/compadre"
       register: compadre_dir
 
-    - name: "[Prereq] Verify Comadre is deployed"
+    - name: "[Prereq] Verify Compadre is deployed"
       ansible.builtin.assert:
         that:
           - compadre_dir.stat.exists
@@ -51,7 +51,7 @@
         fail_msg: >-
           ~/compadre directory does not exist.
           Run bootstrap.yml first to deploy the service.
-        success_msg: "Comadre directory found."
+        success_msg: "Compadre directory found."
 
     - name: "[Prereq] Verify SSH connectivity"
       ansible.builtin.ping:
@@ -59,20 +59,20 @@
     - name: "[Prereq] Probe TTS service container"
       ansible.builtin.command:
         cmd: docker compose -f ~/compadre/compose.yaml ps -q --status running compadre-stt
-      register: tts_running_containers
+      register: compadre_containers
       changed_when: false
 
     - name: "[Prereq] Assert compadre-stt container is running"
       ansible.builtin.assert:
         that:
-          - tts_running_containers.stdout_lines | length >= 1
+          - compadre_containers.stdout_lines | length >= 1
         fail_msg: |
           compadre-stt has no running containers.
           Start the service before running health.yml:
             cd ~/compadre && docker compose up -d
           Inspect logs:
             cd ~/compadre && docker compose logs compadre-stt
-        success_msg: "compadre-stt container is running ({{ tts_running_containers.stdout_lines | length }} replica(s))."
+        success_msg: "compadre-stt container is running ({{ compadre_containers.stdout_lines | length }} replica(s))."
 
     # =========================================================================
     # DB-state delegation — compadre-keys health --format json (Story 3.4 + 4.4)
@@ -438,7 +438,7 @@
     - name: "[Replicas] Report compadre-stt replica count"
       ansible.builtin.debug:
         msg: |
-          compadre-stt replicas running: {{ tts_running_containers.stdout_lines | length }}
+          compadre-stt replicas running: {{ compadre_containers.stdout_lines | length }}
           (Each replica maintains its own auth cache; cross-replica
           invalidation propagates within the 60s TTL via the
           {db}.invalidate sentinel.)
@@ -469,29 +469,11 @@
       register: health_check
       ignore_errors: true
 
-    - name: "[Diag] Explain Qwen3 voice is missing"
-      when:
-        - health_check is defined
-        - health_check.json is defined
-        - not (health_check.json.voices | default([]) | select('match', '^qwen/') | list | length)
-      ansible.builtin.debug:
-        msg: >-
-          INFO: No qwen/* voices are reported.
-          Either QWEN3_ENABLED is false for this host, or the qwen3-tts-cli
-          binary / model / tokenizer are not deployed correctly.
-
     - name: "[Diag] Check root filesystem usage"
       ansible.builtin.command:
         cmd: df -h /
       register: disk_usage
       changed_when: false
-
-    - name: "[Diag] Check audio volume size"
-      ansible.builtin.command:
-        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt du -sh /audio
-      register: audio_volume_size
-      changed_when: false
-      ignore_errors: true
 
     - name: "[Diag] Warn on high disk usage"
       when:
@@ -505,7 +487,7 @@
           WARNING: Root filesystem usage is
           {{ disk_usage.stdout | regex_search('([0-9]+%)', '\\1') | default(['unknown']) | first }}
           (threshold: 80%).
-          Verify audio cleanup cron is active: crontab -l | grep compadre-audio-cleanup
+          Check disk usage with: df -h
 
     # =========================================================================
     # Summary
@@ -524,7 +506,7 @@
           Compadre STT Service — All Health Checks Passed
           ============================================
 
-          Replicas:         {{ tts_running_containers.stdout_lines | length }}
+          Replicas:         {{ compadre_containers.stdout_lines | length }}
           DB file mode:     600
           DB parent mode:   700
           Crons installed:  compadre-daily-suspension, compadre-keys-backup
@@ -533,9 +515,8 @@
           compadre-keys health: {{ health_json.checks | length }} checks, all green
           {% if has_health | bool %}
           /health status:   {{ hc.status | default('unknown') }}
-          Voice count:      {{ hc.models | default([]) | length }}
+          Model count:      {{ hc.models | default([]) | length }}
           {% endif %}
           Disk usage:       {{ disk_usage.stdout_lines[1] | default('Unable to check') }}
-          Audio volume:     {{ audio_volume_size.stdout | default('Unable to check') }}
 
           ============================================
