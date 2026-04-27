@@ -162,12 +162,12 @@ async def transcribe_audio(
                         word_timestamps=True,
                         condition_on_previous_text=False,
                     ),
-                    timeout=120.0,
+                    timeout=settings.transcription_timeout_seconds,
                 )
             except TimeoutError as exc:
                 logger.warning("Transcription timed out")
                 raise CompadreError(
-                    message="Transcription timed out after 120 seconds",
+                    message=f"Transcription timed out after {settings.transcription_timeout_seconds} seconds",
                     status_code=500,
                     error_type="server_error",
                     hint=(

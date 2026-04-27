@@ -210,6 +210,15 @@ class Settings(RegistrySettings):
         ge=1,
         description="Maximum audio duration in seconds (10 minutes)",
     )
+    transcription_timeout_seconds: int = Field(
+        default=1500,
+        ge=10,
+        description=(
+            "Maximum wall-clock seconds allowed for a single transcription. "
+            "Default 1500 s (25 min) provides 2.5× headroom over the "
+            "10-minute max audio at RTF ~1.15."
+        ),
+    )
     hf_home: str = Field(
         default="./data/cache/huggingface",
         description="HuggingFace Hub cache directory for model auto-download",
