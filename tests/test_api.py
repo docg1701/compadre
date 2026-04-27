@@ -11,6 +11,7 @@ import io
 import sqlite3
 import wave
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -225,3 +226,356 @@ async def test_no_audit_log_writes_on_any_transcription_outcome(
         )
     after = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
     assert after == before
+
+
+async def test_auth_enumeration_resistance_all_401_identical_envelope(
+    app: Any, client: AsyncClient
+) -> None:
+    """Unknown key, malformed key, suspended key, revoked key, and expired
+    key all return 401 with ``authentication_error`` type and an identical
+    message for the unknown/malformed pair (enumeration resistance)."""
+    conn: sqlite3.Connection = app.state.registry_db
+
+    pt_unknown = "cmpd_live_" + "a" * 43
+    pt_suspended, _, _ = seed_customer_and_key(
+        conn, customer_email="sus-enum@x.com", status="suspended"
+    )
+    pt_revoked, _, _ = seed_customer_and_key(
+        conn, customer_email="rev-enum@x.com", status="revoked"
+    )
+
+    wav_bytes = _make_wav_bytes()
+    responses: dict[str, dict[str, object]] = {}
+
+    for label, headers in (
+        ("unknown", {"Authorization": f"Bearer {pt_unknown}"}),
+        ("wrong_prefix", {"Authorization": "Bearer not-cmpd-token"}),
+        ("suspended", {"Authorization": f"Bearer {pt_suspended}"}),
+        ("revoked", {"Authorization": f"Bearer {pt_revoked}"}),
+    ):
+        resp = await client.post(
+            "/v1/audio/transcriptions",
+            files={"file": ("test.wav", wav_bytes, "audio/wav")},
+            headers=headers,
+        )
+        assert resp.status_code == 401, f"{label}: expected 401, got {resp.status_code}"
+        responses[label] = resp.json()
+
+    # All must have authentication_error type
+    for label, body in responses.items():
+        assert body["error"]["type"] == "authentication_error", (
+            f"{label}: expected authentication_error, got {body['error']['type']}"
+        )
+
+    # Unknown and wrong_prefix both go through ApiKeyNotFoundError
+    # → identical message (enumeration resistance)
+    unknown_msg = responses["unknown"]["error"]["message"]
+    wrong_prefix_msg = responses["wrong_prefix"]["error"]["message"]
+    assert unknown_msg == wrong_prefix_msg, (
+        f"unknown={unknown_msg!r} vs wrong_prefix={wrong_prefix_msg!r}"
+    )
+
+    # Suspended and revoked carry their specific messages (with contact hint)
+    assert "suspended" in responses["suspended"]["error"]["message"].lower()
+    assert "Contact Ana" in responses["suspended"]["error"]["hint"]
+    assert "revoked" in responses["revoked"]["error"]["message"].lower()
+    assert "Contact Ana" in responses["revoked"]["error"]["hint"]
+
+
+async def test_auth_complimentary_key_ignores_paid_until(
+    app: Any, client: AsyncClient
+) -> None:
+    """A complimentary key with an expired ``paid_until`` still passes
+    auth (200). Complimentary keys are not gated by billing dates."""
+    pt, _, _ = seed_customer_and_key(
+        app.state.registry_db,
+        customer_email="comp-expired@x.com",
+        billing_mode="complimentary",
+        paid_until="2020-01-01",  # expired
+    )
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers={"Authorization": f"Bearer {pt}"},
+    )
+    assert response.status_code == 200, (
+        f"Complimentary key with expired paid_until should still be 200, "
+        f"got {response.status_code}: {response.text[:300]}"
+    )
+
+
+# ── Upload limit boundary tests ──────────────────────────────────────
+
+
+async def test_transcription_duration_too_long_400(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audio > 10 min → 400 with duration error message."""
+    from compadre import api as api_module
+
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 601.0)
+
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["type"] == "invalid_request_error"
+    assert "too long" in body["error"]["message"].lower() or (
+        "601" in body["error"]["message"]
+    )
+
+
+async def test_transcription_duration_within_limit_200(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audio ≤ 10 min → 200 (mocked duration)."""
+    from compadre import api as api_module
+
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 599.0)
+
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    # The engine is mocked, so transcription returns empty but 200
+    assert response.status_code == 200
+
+
+async def test_transcription_duration_at_boundary_599_passes_601_fails(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """599s passes, 601s fails — off-by-one at the 600s boundary."""
+    from compadre import api as api_module
+
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 599.0)
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 601.0)
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "too long" in response.json()["error"]["message"].lower()
+
+
+async def test_transcription_size_exactly_25_mb_200(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exactly 25 MB file passes the size check."""
+    from compadre import api as api_module
+
+    # Mock duration + decode to bypass ffprobe/ffmpeg on x-bytes "audio"
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 5.0)
+    monkeypatch.setattr(api_module, "decode_audio_to_wav", lambda *a, **kw: None)
+
+    exact = b"x" * (25 * 1024 * 1024)
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("big.opus", exact, "audio/opus")},
+        headers=auth_headers,
+    )
+    # size check passes; duration and decode pass (mocked); engine returns 200
+    assert response.status_code == 200
+
+
+async def test_transcription_size_25mb_plus_1_byte_400(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    """25 MB + 1 byte → 400."""
+    over = b"x" * (25 * 1024 * 1024 + 1)
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("big.opus", over, "audio/opus")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["type"] == "invalid_request_error"
+    assert "too large" in body["error"]["message"].lower()
+
+
+# ── Temp file cleanup verification ────────────────────────────────────
+
+
+async def test_temp_files_cleaned_after_success(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """After a 200 transcription, no temp files leak on disk.
+
+    We monkeypatch ``NamedTemporaryFile`` to record every created path
+    and verify they are all unlinked after the request completes.
+    """
+    from tempfile import NamedTemporaryFile as OriginalNTF
+
+    tracked: list[Path] = []
+
+    class TrackedNTF:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._ntf = OriginalNTF(*args, **kwargs)  # noqa: SIM115
+            path = Path(self._ntf.name)
+            tracked.append(path)
+
+        def __enter__(self) -> object:
+            self._ntf.__enter__()
+            return self._ntf
+
+        def __exit__(self, *args: object) -> None:
+            self._ntf.__exit__(*args)
+
+        @property
+        def name(self) -> str:
+            return self._ntf.name
+
+        def write(self, data: bytes) -> int:
+            return self._ntf.write(data)
+
+    import compadre.api as api_module
+
+    monkeypatch.setattr(api_module, "NamedTemporaryFile", TrackedNTF)
+
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+
+    # All tracked temp files must be gone
+    for tpath in tracked:
+        assert not tpath.exists(), f"Temp file not cleaned up: {tpath}"
+
+
+async def test_temp_files_cleaned_after_decode_failure(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``decode_audio_to_wav`` raises, the input temp file must be
+    cleaned up (no orphan tempfile on disk)."""
+    from tempfile import NamedTemporaryFile as OriginalNTF
+
+    from compadre import api as api_module
+
+    tracked: list[Path] = []
+
+    class TrackedNTF:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._ntf = OriginalNTF(*args, **kwargs)  # noqa: SIM115
+            path = Path(self._ntf.name)
+            tracked.append(path)
+
+        def __enter__(self) -> object:
+            self._ntf.__enter__()
+            return self._ntf
+
+        def __exit__(self, *args: object) -> None:
+            self._ntf.__exit__(*args)
+
+        @property
+        def name(self) -> str:
+            return self._ntf.name
+
+        def write(self, data: bytes) -> int:
+            return self._ntf.write(data)
+
+    monkeypatch.setattr(api_module, "NamedTemporaryFile", TrackedNTF)
+
+    def _fail_decode(*args: object, **kwargs: object) -> None:
+        from compadre.exceptions import InvalidRequestError
+        raise InvalidRequestError("simulated decode failure", hint="test")
+
+    monkeypatch.setattr(api_module, "decode_audio_to_wav", _fail_decode)
+
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    # decode failure → 400
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["type"] == "invalid_request_error"
+
+    for tpath in tracked:
+        assert not tpath.exists(), f"Temp file not cleaned up: {tpath}"
+
+
+async def test_temp_files_cleaned_after_transcription_timeout(
+    app: Any,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the engine raises ``TimeoutError`` (wrapped by the API as
+    CompadreError 500), the WAV temp file must be cleaned up."""
+    from tempfile import NamedTemporaryFile as OriginalNTF
+
+    from compadre import api as api_module
+
+    tracked: list[Path] = []
+
+    class TrackedNTF:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._ntf = OriginalNTF(*args, **kwargs)  # noqa: SIM115
+            path = Path(self._ntf.name)
+            tracked.append(path)
+
+        def __enter__(self) -> object:
+            self._ntf.__enter__()
+            return self._ntf
+
+        def __exit__(self, *args: object) -> None:
+            self._ntf.__exit__(*args)
+
+        @property
+        def name(self) -> str:
+            return self._ntf.name
+
+        def write(self, data: bytes) -> int:
+            return self._ntf.write(data)
+
+    monkeypatch.setattr(api_module, "NamedTemporaryFile", TrackedNTF)
+
+    # Mock decode + duration to succeed, then make the engine raise TimeoutError
+    monkeypatch.setattr(api_module, "get_audio_duration", lambda _p: 5.0)
+    monkeypatch.setattr(api_module, "decode_audio_to_wav", lambda *a, **kw: None)
+
+    # Set the mock engine's transcribe to raise TimeoutError
+    app.state.engine.transcribe.side_effect = TimeoutError("simulated timeout")
+
+    response = await client.post(
+        "/v1/audio/transcriptions",
+        files={"file": ("test.wav", _make_wav_bytes(), "audio/wav")},
+        headers=auth_headers,
+    )
+    # Timeout → CompadreError 500
+    assert response.status_code == 500
+    body = response.json()
+    assert body["error"]["type"] == "server_error"
+    assert "timed out" in body["error"]["message"].lower()
+
+    for tpath in tracked:
+        assert not tpath.exists(), f"Temp file not cleaned up: {tpath}"

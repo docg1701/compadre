@@ -194,3 +194,94 @@ def auth_headers(app: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         app.state.registry_db, rate_limit_rpm=9999
     )
     return {"Authorization": f"Bearer {plaintext}"}
+
+
+# ---------------------------------------------------------------------------
+# Slow (real-model) test fixtures
+# ---------------------------------------------------------------------------
+
+_REFERENCE_AUDIO_NAME = "audio-de-teste-01.ogg"
+
+
+@pytest.fixture(scope="session")
+def reference_audio_path() -> Path:
+    """Path to the reference test audio file at the repo root.
+
+    ``audio-de-teste-01.ogg`` — ~14s monologue Portuguese, 16kHz mono OPUS
+    in OGG container. Used as the canonical input for real-model integration
+    tests.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    path = repo_root / _REFERENCE_AUDIO_NAME
+    if not path.is_file():
+        pytest.fail(
+            f"Reference audio file not found at {path}. "
+            f"Run `git lfs pull` or copy a test audio file to {path}."
+        )
+    return path
+
+
+@pytest.fixture(scope="session")
+def real_engine() -> Any:
+    """Load the real faster-whisper model once per test session.
+
+    The model is ~1.5 GB and takes 5-15 seconds to load on first call
+    (longer if HuggingFace download is needed). Session scope ensures it
+    loads only once across all ``@pytest.mark.slow`` tests.
+    """
+    from compadre.stt import WhisperEngine
+
+    engine = WhisperEngine()
+    engine.load_model()
+    return engine
+
+
+@pytest.fixture(scope="session")
+def multi_format_audio_dir(
+    reference_audio_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Path:
+    """Generate test audio files in all 5 supported formats from the
+    reference OGG file, stored in a session-scoped temp directory.
+
+    Returns the directory path containing:
+        audio.ogg   — original OPUS-in-OGG (copy)
+        audio.mp3   — MP3
+        audio.m4a   — M4A (AAC)
+        audio.wav   — 16kHz mono PCM WAV
+        audio.webm  — OPUS-in-WebM
+    """
+    import shutil
+    import subprocess
+
+    out_dir = tmp_path_factory.mktemp("audio-formats")
+
+    # Copy original OGG
+    ogg_path = out_dir / "audio.ogg"
+    shutil.copy2(reference_audio_path, ogg_path)
+
+    formats: list[tuple[str, str, list[str]]] = [
+        ("audio.mp3", "mp3", ["-b:a", "64k"]),
+        ("audio.m4a", "m4a", ["-c:a", "aac", "-b:a", "64k"]),
+        ("audio.wav", "wav", ["-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1"]),
+        ("audio.webm", "webm", ["-c:a", "libopus", "-b:a", "32k"]),
+    ]
+
+    for out_name, _fmt, extra_args in formats:
+        out_path = out_dir / out_name
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(reference_audio_path),
+            "-vn",
+            *extra_args,
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+        except subprocess.CalledProcessError as exc:
+            pytest.fail(
+                f"Failed to convert reference audio to {out_name}: "
+                f"{exc.stderr.strip()}"
+            )
+    return out_dir

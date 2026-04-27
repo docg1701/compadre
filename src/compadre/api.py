@@ -97,7 +97,10 @@ async def transcribe_audio(
                 if total > max_bytes:
                     raise InvalidRequestError(
                         message=f"File too large ({total / (1024 * 1024):.1f} MB)",
-                        hint=f"Maximum upload size is {settings.max_upload_size_mb} MB.",
+                        hint=(
+                            f"Maximum upload size is"
+                            f" {settings.max_upload_size_mb} MB."
+                        ),
                     )
                 tmp_in.write(chunk)
     except Exception:

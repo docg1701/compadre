@@ -15,7 +15,13 @@ from starlette.requests import Request
 
 from compadre.exceptions import KeyRegistryError, RateLimitError
 from compadre.keys.models import AuthPayload
-from compadre.rate_limit import RateLimiter, check_rate_limit, get_client_ip
+from compadre.rate_limit import (
+    RateLimiter,
+    check_health_per_ip_rate_limit,
+    check_rate_limit,
+    check_transcription_per_ip_rate_limit,
+    get_client_ip,
+)
 
 
 def _build_request(
@@ -107,3 +113,108 @@ async def test_check_rate_limit_missing_state_raises_key_registry_error() -> Non
     req2 = _build_request(auth_payload=_payload())
     with pytest.raises(KeyRegistryError):
         await check_rate_limit(req2)
+
+
+# ── X-RateLimit-* header assertions ───────────────────────────────────
+
+
+async def test_x_rate_limit_headers_on_allow() -> None:
+    """After a successful ``check_rate_limit``, ``request.state.rate_limit_headers``
+    must contain ``X-RateLimit-Limit``, ``X-RateLimit-Remaining``, and
+    ``X-RateLimit-Reset`` with expected types."""
+    rl = RateLimiter.build()
+    payload = _payload(rate_limit_rpm=60)
+    req = _build_request(auth_payload=payload, rate_limiter=rl)
+
+    await check_rate_limit(req)
+
+    headers: dict[str, str] = req.state.rate_limit_headers
+    assert "X-RateLimit-Limit" in headers
+    assert "X-RateLimit-Remaining" in headers
+    assert "X-RateLimit-Reset" in headers
+    assert headers["X-RateLimit-Limit"] == "60"
+    # Remaining should be >= 0
+    assert int(headers["X-RateLimit-Remaining"]) >= 0
+    # Reset should be a future unix timestamp
+    assert int(headers["X-RateLimit-Reset"]) > 0
+
+
+async def test_retry_after_header_on_429() -> None:
+    """When ``RateLimitError`` is raised, it carries a ``retry_after`` field
+    that the error handler emits as the ``Retry-After`` header."""
+    rl = RateLimiter.build()
+    payload = _payload(rate_limit_rpm=1)
+    req = _build_request(auth_payload=payload, rate_limiter=rl)
+
+    await check_rate_limit(req)  # consume the only allowed hit
+    with pytest.raises(RateLimitError) as exc_info:
+        await check_rate_limit(req)
+
+    err = exc_info.value
+    assert isinstance(err.retry_after, int)
+    assert err.retry_after >= 1
+    assert err.limit == 1
+    assert err.remaining == 0
+    assert isinstance(err.reset, int)
+
+
+# ── Per-IP limits ─────────────────────────────────────────────────────
+
+
+async def test_per_ip_health_rate_limit() -> None:
+    """Call ``check_health_per_ip_rate_limit`` 61 times (limit is 60/min);
+    the 61st must raise ``RateLimitError``."""
+    rl = RateLimiter.build()
+    ip = "203.0.113.99"
+    req = _build_request(
+        headers={"x-forwarded-for": ip},
+        client_host=ip,
+        rate_limiter=rl,
+    )
+
+    for _ in range(60):
+        await check_health_per_ip_rate_limit(req)
+
+    with pytest.raises(RateLimitError):
+        await check_health_per_ip_rate_limit(req)
+
+
+async def test_per_ip_transcription_rate_limit() -> None:
+    """Call ``check_transcription_per_ip_rate_limit`` 601 times (limit is
+    600/min); the 601st must raise ``RateLimitError``."""
+    rl = RateLimiter.build()
+    ip = "203.0.113.88"
+    req = _build_request(
+        headers={"x-forwarded-for": ip},
+        client_host=ip,
+        rate_limiter=rl,
+    )
+
+    for _ in range(600):
+        await check_transcription_per_ip_rate_limit(req)
+
+    with pytest.raises(RateLimitError):
+        await check_transcription_per_ip_rate_limit(req)
+
+
+async def test_per_ip_health_limit_independent_from_transcription_limit() -> None:
+    """Exhaust health IP bucket; transcription IP bucket must still be open."""
+    rl = RateLimiter.build()
+    ip = "203.0.113.77"
+    req = _build_request(
+        headers={"x-forwarded-for": ip},
+        client_host=ip,
+        rate_limiter=rl,
+    )
+
+    # Exhaust health bucket (60/min)
+    for _ in range(60):
+        await check_health_per_ip_rate_limit(req)
+
+    with pytest.raises(RateLimitError):
+        await check_health_per_ip_rate_limit(req)
+
+    # Transcription bucket should still be independent and open
+    # (600/min — way more than we'll fire here, but we assert the first
+    # call does NOT raise)
+    await check_transcription_per_ip_rate_limit(req)
