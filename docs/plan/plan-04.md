@@ -417,7 +417,7 @@ echo "Exit: $?"
 # Expected: exit 2
 
 # Non-existent customer
-$CE compadre-keys issue-key --customer cust_nonexistent --rpm 60
+$CE compadre-keys issue-key --customer cust_nonexistent --rpm 60 --price 149
 echo "Exit: $?"
 # Expected: exit 3
 
@@ -584,17 +584,14 @@ KEY1_NEW_PREFIX="${KEY1_NEW_PLAINTEXT:10:8}"
 **Verification:**
 
 ```bash
-# Old plaintext → 401
-curl -k -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $KEY1_PLAINTEXT" \
-  https://10.10.10.208/health
-# Expected: 401
+# Verify old plaintext is revoked via CLI (``/health`` is unauthenticated —
+# it returns 200 regardless of bearer validity; do not use it for auth checks).
+$CE compadre-keys show "$KEY1_PREFIX"
+# Expected: status=revoked (or "Key not found" if the prefix changed after rotation)
 
-# New plaintext → 200
-curl -k -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $KEY1_NEW_PLAINTEXT" \
-  https://10.10.10.208/health
-# Expected: 200
+# Verify new plaintext is active.
+$CE compadre-keys show "$KEY1_NEW_PREFIX"
+# Expected: status=active
 ```
 
 **State verification (SQLite):**
@@ -638,11 +635,9 @@ $CEI compadre-keys revoke-key "$KEY2_PREFIX" \
 **Verification:**
 
 ```bash
-# Revoked key → 401
-curl -k -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $KEY2_PLAINTEXT" \
-  https://10.10.10.208/health
-# Expected: 401
+# Verify the key is revoked via CLI (``/health`` is unauthenticated).
+$CE compadre-keys show "$KEY2_PREFIX"
+# Expected: status=revoked
 ```
 
 ### 3.9 — `revoke-key`: edge cases
@@ -819,8 +814,13 @@ KEY3_PREFIX="${KEY3_PLAINTEXT:10:8}"
 $CE compadre-keys mark-paid "$KEY3_PREFIX" --months 1
 # Expected: exit 0, informational message, no mutation (complimentary keys ignore billing)
 
-# mark-paid a revoked key
+# mark-paid a revoked complimentary key — billing mode short-circuits before status check
 $CE compadre-keys mark-paid "$KEY2_PREFIX" --months 1
+echo "Exit: $?"
+# Expected: exit 0, "complimentary — no payment tracking required" (not exit 3)
+
+# mark-paid a revoked manual key — status check applies AFTER billing-mode gate
+$CE compadre-keys mark-paid "$KEY1_NEW_PREFIX" --months 1
 echo "Exit: $?"
 # Expected: exit 3, "Key is revoked"
 
@@ -842,21 +842,17 @@ echo "Exit: $?"
 $CE compadre-keys suspend "$KEY1_NEW_PREFIX" --reason "Payment overdue - 14 days"
 # Expected: exit 0, "Suspended: ..."
 
-# Verify: key → 401
-curl -k -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $KEY1_NEW_PLAINTEXT" \
-  https://10.10.10.208/health
-# Expected: 401
+# Verify: key is suspended via CLI (``/health`` is unauthenticated).
+$CE compadre-keys show "$KEY1_NEW_PREFIX"
+# Expected: status=suspended
 
 # Reactivate (without extending billing — paid_until unchanged)
 $CE compadre-keys reactivate "$KEY1_NEW_PREFIX"
 # Expected: exit 0, "Reactivated: ..."
 
-# Verify: key → 200 again
-curl -k -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $KEY1_NEW_PLAINTEXT" \
-  https://10.10.10.208/health
-# Expected: 200
+# Verify: key is active again
+$CE compadre-keys show "$KEY1_NEW_PREFIX"
+# Expected: status=active
 ```
 
 **State verification (SQLite):**
@@ -1031,9 +1027,9 @@ $CE sqlite3 /var/lib/compadre/registry.db \
   "SELECT id, customer_id FROM api_key WHERE customer_id='$C1';"
 # Save the key IDs
 
-# Correct the CPF
+# Correct the CPF (must be checksum-valid)
 $CEI compadre-keys correct-tax-id "$C1" \
-  --new-cpf "222.333.444-55" \
+  --new-cpf "529.982.247-25" \
   --reason "operator-typo correction"
 # Prompts → y
 # Expected: exit 0, "Tax-ID corrected: ... — kind cpf"
@@ -1069,7 +1065,7 @@ SELECT action, details_json FROM audit_log WHERE action='correct_tax_id' ORDER B
 
 ```bash
 $CE compadre-keys export-customer "$C1" --format json | jq '.tax_id'
-# Expected: "222.333.444-55" (new CPF)
+# Expected: "529.982.247-25" (new CPF)
 ```
 
 ### 5.5 — `correct-tax-id`: edge cases

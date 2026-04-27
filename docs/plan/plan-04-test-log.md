@@ -190,13 +190,19 @@
 
 ## Discrepancies Between Plan and Implementation
 
+All 6 discrepancies are plan-level issues (invalid test data or incorrect expected values), not implementation bugs.
+
 1. **CPF "222.333.444-55" is invalid** (Task 5.4): The plan specifies this CPF for correct-tax-id testing, but it fails checksum validation. A valid CPF (529.982.247-25) works correctly. **Fix plan** to use a valid CPF.
 
-2. **`/health` endpoint requires no auth** (Task 3.6): The plan uses `curl -H "Authorization: Bearer ..." https://.../health` to verify key validity (200 vs 401). However, `/health` is not auth-protected — it returns 200 regardless of the key. **Fix plan** to use a transcription endpoint or check DB state for key validity.
+2. **`/health` endpoint requires no auth** (Task 3.6): The plan uses `curl -H "Authorization: Bearer ..." https://.../health` to verify key validity (200 vs 401). However, `/health` is not auth-protected — it returns 200 regardless of the key. **Fix plan** to use `compadre-keys show <prefix>` or a protected endpoint for auth checks.
 
 3. **`issue-key --customer nonexistent --rpm 60` returns exit 2, not 3** (Task 3.2): Without `--price`, the validation fails with "Usage error: --price is required" before the customer lookup. Adding `--price 149` correctly returns exit 3. **Fix plan** to include `--price` in the test command.
 
 4. **`mark-paid` on revoked complimentary key returns exit 0, not 3** (Task 4.5): Complimentary keys ignore billing regardless of status. The billing mode check takes priority. Returns informational "no payment tracking required" message. This is correct behavior — **fix plan** expected exit code.
+
+5. **`grep "HTTPException"` finds handler docstrings, not raw raises** (Task 8.2): `main.py` contains two exception-handler functions (`_not_found_handler`, `_method_not_allowed_handler`) that catch Starlette `HTTPException` and convert it to the project's standard JSON envelope. They do not *raise* raw `HTTPException`. The invariant check should target `raise HTTPException`, not bare string matches. **Fix plan** grep pattern.
+
+6. **`grep "print()"` finds `console.print()` and docstrings, not builtin `print()`** (Task 8.4): All `print` hits in core code are `rich.console.Console.print()` calls or docstring examples. No builtin `print()` calls exist in application logic. **Fix plan** grep pattern to exclude `console.print` and docstring literals.
 
 ## Notes
 

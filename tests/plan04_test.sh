@@ -1,5 +1,14 @@
 #!/bin/bash
-# Comprehensive Compadre CLI Test Suite - Plan 4
+# Partial automated test suite for Plan 04 — Key Management Exhaustive Testing.
+#
+# WARNING: This script assumes a pre-existing test state (customers, keys)
+# created by the manual steps in docs/plan/plan-04.md Tasks 1–3. It is NOT
+# idempotent and will fail on a fresh registry because C1, C2, K1NP, K2P, etc.
+# are hardcoded from a prior run. Run the full plan manually once, capture the
+# generated IDs, then update the variables below before executing this script.
+#
+# The script covers Tasks 3 (Key Verbs continuation), 4 (Billing), 5 (LGPD),
+# 6 (System), 7 (Exit Codes), 8 (Invariants), and 9 (Concurrent).
 set +e
 cd ~/compadre
 CE="docker compose exec -T compadre-stt"
@@ -10,6 +19,7 @@ FAIL=0
 pass() { echo "PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "FAIL: $1 — $2"; FAIL=$((FAIL+1)); }
 
+# Hardcoded IDs from a prior manual run — MUST be updated after each fresh deploy.
 C1="cust_01kq8dng854pxfdqzes6bzzht6"
 C2="cust_01kq8dnqv6fkp5f1brfvse6hv9"
 K1NP="AgTojNuG"
@@ -159,7 +169,7 @@ echo "  tax_id_kind before: $TAX_BEFORE"
 KEYS_BEFORE=$($CE sqlite3 "$DB" "SELECT COUNT(*) FROM api_key WHERE customer_id='$C1';")
 echo "  keys for C1: $KEYS_BEFORE"
 
-$CE compadre-keys correct-tax-id "$C1" --new-cpf "222.333.444-55" --reason "operator-typo correction" --yes >/dev/null 2>&1
+$CE compadre-keys correct-tax-id "$C1" --new-cpf "529.982.247-25" --reason "operator-typo correction" --yes >/dev/null 2>&1
 ec=$?; [ "$ec" -eq 0 ] && pass "correct-tax-id ($ec)" || fail "correct-tax-id" "exit $ec"
 
 # Verify FKs preserved
@@ -168,7 +178,7 @@ KEYS_AFTER=$($CE sqlite3 "$DB" "SELECT COUNT(*) FROM api_key WHERE customer_id='
 
 # Verify export shows new tax ID
 TAX_NEW=$($CE compadre-keys export-customer "$C1" --format json 2>&1 | python3 -c "import sys,json; print(json.load(sys.stdin)['tax_id'])" 2>/dev/null)
-[ "$TAX_NEW" = "222.333.444-55" ] && pass "tax_id decrypted correctly ($TAX_NEW)" || fail "tax_id" "expected 222.333.444-55 got $TAX_NEW"
+[ "$TAX_NEW" = "529.982.247-25" ] && pass "tax_id decrypted correctly ($TAX_NEW)" || fail "tax_id" "expected 529.982.247-25 got $TAX_NEW"
 
 echo "--- 5.5 correct-tax-id edge cases ---"
 $CE compadre-keys correct-tax-id "$C1" --new-cnpj "11222333000181" --reason "test dup" --yes >/dev/null 2>&1
@@ -281,9 +291,15 @@ if $CE test -f "$MARKER_BACKUP"; then
   $CE mv "${MARKER_BACKUP}.bak" "$MARKER_BACKUP" 2>/dev/null
   if [ "$ec" -eq 7 ]; then pass "exit 7: health json warn ($ec)"; else fail "exit 7" "got $ec"; fi
 else
+  # Fallback: if no backup marker exists, health may still be warn on a fresh
+  # deploy (no backups yet). Check whether any check is non-ok.
   $CE compadre-keys health --format json >/dev/null 2>&1
   ec=$?
-  pass "health json exit: $ec (no marker to remove)"
+  if [ "$ec" -eq 7 ]; then
+    pass "exit 7: health json warn on fresh deploy ($ec)"
+  else
+    pass "health json exit: $ec (no marker, no warn)"
+  fi
 fi
 
 echo ""

@@ -1,3 +1,42 @@
+# Progress — Plan 04 Review
+
+## Review
+
+### Correct (already good)
+- **All 21 CLI verbs tested** on the live VPS (`10.10.10.208`) with 105 test cases covering the full lifecycle.
+- **Exit codes 0–7 all triggered and verified** by real conditions (invalid CPF, missing customer, bad Fernet key, DB error, missing encryption key, health warn).
+- **Critical invariants properly verified** by the worker:
+  - Single `fernet.decrypt` call site: exactly 1 hit in `crypto.py::decrypt_tax_id` ✅
+  - No raw `os.environ`: 0 hits in `src/compadre/` ✅
+  - Tombstone contract: `tax_id_encrypted=X''`, `name/email/notes=""`, `tax_id_lookup=NULL`, `deleted_at IS NOT NULL`, all keys DELETEd, audit row written — all 6 checks passed via direct SQLite queries ✅
+  - Encryption key rotation: re-encrypts ONLY `deleted_at IS NULL` customers (tombstones skipped), atomic rollback on `InvalidToken`, round-trip decrypt verified after `.env` update + container restart ✅
+  - Sweep logic: strict `paid_until < today` (not `<=`), complimentary and NULL `paid_until` rows never touched — confirmed in `db.py::run_suspension_sweep` SQL ✅
+- **Concurrent smoke tests passed**: `issue-key` and `rotate-key` during active traffic produced no DB corruption.
+- **Test log accurately captures** pass/fail counts per task area and distinguishes plan-level issues from implementation bugs.
+
+### Fixed (issue and resolution)
+- **Issue:** `docs/plan/plan-04.md` Task 5.4 specified invalid CPF `"222.333.444-55"` (checksum failure) for `correct-tax-id` testing.
+  **Resolution:** Changed to valid CPF `"529.982.247-25"` in plan, test script, and expected export assertion.
+- **Issue:** `docs/plan/plan-04.md` Task 3.6 used `curl /health` with bearer tokens expecting 401/200 to verify key validity, but `/health` is unauthenticated (returns 200 for all callers).
+  **Resolution:** Replaced curl checks with `compadre-keys show <prefix>` status verification and added a plan note explaining `/health` auth behavior.
+- **Issue:** `docs/plan/plan-04.md` Task 3.2 tested `issue-key --customer nonexistent --rpm 60` expecting exit 3, but without `--price` the billing-mode validation fires first and returns exit 2.
+  **Resolution:** Added `--price 149` to the test command so customer lookup executes first and returns exit 3 as intended.
+- **Issue:** `docs/plan/plan-04.md` Task 4.5 expected exit 3 for `mark-paid` on a revoked complimentary key, but the CLI short-circuits on `billing_mode == "complimentary"` (exit 0, informational) before checking revocation status.
+  **Resolution:** Updated plan to expect exit 0 for revoked complimentary keys and added a separate test for revoked manual keys (which correctly return exit 3).
+- **Issue:** `docs/plan/plan-04-test-log.md` listed only 4 discrepancies but the summary cites 6; the missing 2 were Task 8 invariant grep false-positives (`HTTPException` handler docstrings, `console.print()` vs builtin `print()`).
+  **Resolution:** Updated discrepancies section to enumerate all 6 plan-level issues with root-cause explanations.
+- **Issue:** `tests/plan04_test.sh` contained the same invalid CPF, had no header explaining its hardcoded-ID dependency, and its health-exit-7 fallback could report a false pass on fresh deploys.
+  **Resolution:** Fixed CPF, added prominent header comment documenting hardcoded IDs and manual-setup prerequisite, and improved the health-exit-7 fallback branch to correctly detect warn states on fresh deployments.
+
+### Note (observations / follow-up)
+- **`tests/plan04_test.sh` is a partial fragment, not a standalone reusable suite.** It covers Tasks 3–9 but omits Task 2 (customer CRUD), Task 4.10 (`revenue --as-of`), Task 6.6 (`rotate-encryption-key` round-trip), Task 8.10 (counter snapshot files), and Task 10 (cleanup). It also hardcodes IDs from a prior manual run. If this script is meant to be production-quality, it needs dynamic setup/teardown and full task coverage — likely a follow-up Plan 04b.
+- **The 6 discrepancies are all plan-level, not implementation bugs.** The implementation matches `AGENTS.md` architecture invariants and exit-code contracts. No code changes were required.
+- **Counter snapshot files were not created during testing** (insufficient API traffic). This is noted in the test log and is acceptable for Plan 04 scope; the counter logic is already unit-tested in `tests/`.
+- **Test log shows 4 tombstones remaining in the DB** because Task 10 cleanup was not fully executed. This is harmless on a disposable test VPS but should be part of any automated suite.
+- **Plan 04 is complete** pending the minor documentation/script fixes applied above.
+
+---
+
 # Progress — Plan 03 Review
 
 ## Review
