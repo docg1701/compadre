@@ -4,7 +4,7 @@ This package holds the CI non-regression contract — the mechanical checks
 that prove controls the PRD marks as *must-not-regress* still hold on every
 PR. Some checks run against a locally-spawned `docker` stack (the production
 Caddy image with the production `deploy/caddy/Caddyfile`, hitting a stubbed
-upstream instead of the real `tts-service` container); others exercise the
+upstream instead of the real `compadre-stt` container); others exercise the
 FastAPI app directly via an ASGI TestClient. The common contract is: they
 run in the CI `non-regression` job and are excluded from the default
 developer `pytest` invocation.
@@ -18,7 +18,7 @@ Ownership per sub-story (Epic 4, Story 4.5a-g):
 | `test_timing_safe_compare.py`| 4.5c      | FR48 — static AST scan forbids bare `==`/`!=` on `*hash*`/`*token*`/`*secret*` identifiers in `src/compadre/`, with `# scan-allow: <reason>` line-comment allowlist |
 | `test_request_body_limit.py` | 4.5d      | FR49 — Caddy `@api` body-framing + oversize policy (any-TE/malformed-CL/missing-framing/>1MiB rejected; includes static Caddyfile-parity probe; see module docstring) |
 | `test_rate_limit_wired.py`   | 4.5e      | FR50 — per-key rate-limit gate on `/v1/audio/transcriptions`: `Depends(check_rate_limit)` present + `app.state.rate_limiter` initialised + 429 on `rate_limit_rpm+1`; negative assertion `/health` UN-rate-limited. ASGI TestClient (no docker). See module docstring for the 2.0.0 re-interpretation of FR50's slowapi-era wording. |
-| `test_no_raw_httpexception.py` | 4.5f    | FR51 — static AST scan forbids ``raise HTTPException(...)`` AND ``from {fastapi, fastapi.exceptions, starlette.exceptions} import HTTPException`` in ``src/compadre/``, with ``# scan-allow: <reason>`` line-comment allowlist (same contract as 4.5c). Remediation hint names the ``ComadreError`` hierarchy at ``src/compadre/exceptions.py``. |
+| `test_no_raw_httpexception.py` | 4.5f    | FR51 — static AST scan forbids ``raise HTTPException(...)`` AND ``from {fastapi, fastapi.exceptions, starlette.exceptions} import HTTPException`` in ``src/compadre/``, with ``# scan-allow: <reason>`` line-comment allowlist (same contract as 4.5c). Remediation hint names the ``CompadreError`` hierarchy at ``src/compadre/exceptions.py``. |
 | `test_sql_static_bandit.py`  | 4.5g      | SQL-injection prevention — subprocess-runs ``python -m bandit -c <sentinel> -r src/compadre/keys/ -t B608 -ll -f json -q``, asserts zero B608 (``hardcoded_sql_expressions``) findings at MEDIUM-or-higher severity (``-ll``; bandit's ``-l`` means LOW-or-higher). Controlled-input column/identifier splicing sites use bandit's native ``# nosec B608  # <reviewer-enforced reason>`` two-comment escape hatch (orthogonal to 4.5c/4.5f's ``# scan-allow:`` token — see "Scan allowlist convention"). |
 
 ## Opt-in contract
@@ -76,18 +76,18 @@ HTTP/2-stream bleed between probes.
 
 We start two containers labeled `compadre-non-regression`:
 
-1. `nginx:alpine` aliased as `tts-service` on a user-defined network,
+1. `nginx:alpine` aliased as `compadre-stt` on a user-defined network,
    listening on port 8000 with a two-line config that returns 200 on any
    path.
 2. `caddy:2-alpine` bound to `127.0.0.1:80` / `127.0.0.1:443`, with the
    production `deploy/caddy/Caddyfile` bind-mounted read-only and
    `deploy/landing` bind-mounted at `/srv/www:ro`.
 
-Caddy's `dynamic a { name tts-service port 8000 }` resolves the nginx stub
+Caddy's `dynamic a { name compadre-stt port 8000 }` resolves the nginx stub
 via Docker's embedded DNS (the user-defined network resolves container
 names / network aliases automatically).
 
-### Why NOT the real `tts-service`
+### Why NOT the real `compadre-stt`
 
 - First-boot model download is ~1.5 GB (Kokoro + Qwen3 + tokenizer) and
   takes multiple minutes on a GitHub-hosted runner.
@@ -98,7 +98,7 @@ names / network aliases automatically).
 - `GET /not-a-real-path` and `POST /` don't even hit the upstream — they're
   served by Caddy's `file_server` handler directly.
 
-A full-stack CI smoke (real `tts-service`) would catch regressions the
+A full-stack CI smoke (real `compadre-stt`) would catch regressions the
 stub misses (engine warm-up, signal handling, volume mounts) but is
 deliberately out of scope here — add it as a separate workflow file
 when a real regression slips past the stub.

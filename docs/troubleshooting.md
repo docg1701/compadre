@@ -1,3 +1,5 @@
+> **Last updated:** 2026-04-26
+
 # Troubleshooting
 
 Common issues with symptoms, causes, and resolution steps.

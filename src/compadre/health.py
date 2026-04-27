@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import resource
+import sys
 import time
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -25,9 +26,17 @@ class HealthStatus(StrEnum):
 
 
 def _get_memory_mb() -> int:
-    """Return peak process RSS in megabytes (ru_maxrss)."""
-    usage_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return usage_kb // 1024
+    """Return peak process RSS in megabytes (ru_maxrss).
+
+    Linux reports ``ru_maxrss`` in kilobytes; macOS / BSD report it in bytes.
+    Normalize to megabytes regardless of platform.
+    """
+    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "darwin":
+        # macOS / BSD: bytes → MB
+        return usage // (1024 * 1024)
+    # Linux: KB → MB
+    return usage // 1024
 
 
 def _get_uptime_seconds(start_time: float) -> int:

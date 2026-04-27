@@ -57,7 +57,7 @@ async def test_transcription_happy_path_all_formats(
             lambda r: "segments" in r.json() and "language" in r.json(),
         ),
         ("srt", "text/plain", lambda r: isinstance(r.text, str)),
-        ("vtt", "text/plain", lambda r: r.text.startswith("WEBVTT") or r.text == ""),
+        ("vtt", "text/vtt", lambda r: r.text.startswith("WEBVTT") or r.text == ""),
     ):
         response = await client.post(
             "/v1/audio/transcriptions",

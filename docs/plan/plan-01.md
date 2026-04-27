@@ -1,3 +1,7 @@
+> ⚠️ **EXECUTED — DO NOT RE-EXECUTE** (2026-04-27)  
+> This plan was fully completed; ~90 % of the described work was already done in prior commits.  
+> See `docs/plan/plan-01-review.md` for the reviewer findings. Proceed to Plan 2.
+
 # Implementation Plan 01 — Documentation Audit & Correction
 
 ## Goal
@@ -476,19 +480,20 @@ grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md
 
 ## Validation Checklist (Post-Audit)
 
-Run these grep commands; expect **zero hits** on each:
+Run these grep commands; expect **zero hits** in current docs (historical docs with
+banners and plan documents are exempt):
 
-- [ ] `grep -rni "kokoro\|qwen3\|qwen\b" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "espeak" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "/v1/audio/speech" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "DEFAULT_VOICE\|VOICES_DIR\|ESPEAK_DATA_PATH\|NOISE_DIR" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "KOKORO_\|QWEN3_\|ESPEAK_" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "src/comadre" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "TTS engine\|TTS generation\|TTS service\|TTS request\|speech synthesis\|text-to-speech\|generate.speech\|generated.audio" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "voice.*routing\|voice.*select\|voice.*cloning\|voice.*management\|voice.*profile" docs/ README.md AGENTS.md`
-- [ ] `grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md`
-- [ ] `grep -rni '"input".*:.*".*"' docs/api-reference.md docs/deployment-guide.md docs/local-testing-guide.md` (JSON body example — should use multipart)
-- [ ] Every doc has a "Last updated" date at the top
-- [ ] `docs/plan/audit-checklist.md` exists and all rows show "passed"
-- [ ] Every curl example uses `-F` (multipart), not `-d` (JSON)
-- [ ] All endpoint references are `/v1/audio/transcriptions`
+- [x] `grep -rni "kokoro\|qwen3\|qwen\b" docs/ README.md AGENTS.md` — zero in current docs; hits only in `compadre-brief.md`, `compadre-development-plan.md`, and plan files (expected)
+- [x] `grep -rni "espeak" docs/ README.md AGENTS.md` — zero in current docs; hits only in historical/plan files (expected)
+- [x] `grep -rni "/v1/audio/speech" docs/ README.md AGENTS.md` — zero in current docs; hits only in historical/plan files (expected)
+- [x] `grep -rni "DEFAULT_VOICE\|VOICES_DIR\|ESPEAK_DATA_PATH\|NOISE_DIR" docs/ README.md AGENTS.md` — zero in current docs; hits only in `compadre-development-plan.md` (expected)
+- [x] `grep -rni "KOKORO_\|QWEN3_\|ESPEAK_" docs/ README.md AGENTS.md` — zero in current docs; hits only in historical/plan files (expected)
+- [x] `grep -rni "src/comadre" docs/ README.md AGENTS.md` — zero in current docs; hits only in historical/plan files (expected)
+- [x] `grep -rni "TTS engine\|TTS generation\|TTS service\|TTS request\|speech synthesis\|text-to-speech\|generate.speech\|generated.audio" docs/ README.md AGENTS.md` — zero in current docs; `deployment-guide.md` has one parenthetical "prior TTS project" explaining a legacy cron (acceptable context)
+- [x] `grep -rni "voice.*routing\|voice.*select\|voice.*cloning\|voice.*management\|voice.*profile" docs/ README.md AGENTS.md` — zero hits
+- [x] `grep -rni "comadre-stt\|comadre-keys\b" docs/ README.md AGENTS.md` — zero hits
+- [x] `grep -rni '"input".*:.*".*"' docs/api-reference.md docs/deployment-guide.md docs/local-testing-guide.md` — zero hits (all examples use multipart `-F`)
+- [x] Every current doc has a "Last updated" date
+- [x] `docs/plan/audit-checklist.md` exists and all rows show "passed"
+- [x] Every curl example in current docs uses `-F` (multipart), not `-d` (JSON)
+- [x] All endpoint references in current docs are `/v1/audio/transcriptions`

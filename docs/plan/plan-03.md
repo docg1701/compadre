@@ -47,12 +47,15 @@ Full audit of all 7 playbooks + 3 scripts + 2 inventory files + compose.yaml + C
 | 12 | **MED** | `deploy/ansible/scripts/restore-stage.sh` | Comment references "tts-service image". |
 | 13 | **MED** | `deploy/ansible/scripts/restore-swap.sh` | Comment references "tts-service is stopped". |
 | 14 | **MED** | `deploy/caddy/Caddyfile` | Comment says "API paths → tts-service" (line 100). |
-| 15 | **LOW** | `deploy/ansible/playbooks/bootstrap.yml` | `.env` template writes `DOMAIN={{ domain }}` but compose.yaml reads `${DOMAIN}` — these happen to match, but the template also writes `WHISPER_MODEL_SIZE` which compose maps to `COMPADRE_WHISPER_MODEL_SIZE` (mismatch — see #1). |
-| 16 | **LOW** | `deploy/ansible/playbooks/update.yml` | Title and tasks contain "Comadre" in 6 places (was: "two places"). |
-| 17 | **LOW** | `deploy/ansible/playbooks/cleanup.yml` | Title and tasks contain "Comadre" in 4 places. Cron removal includes `compadre-daily-restart` (legacy TTS cron — harmless but wrong context). |
-| 18 | **LOW** | `deploy/ansible/playbooks/backup-keys.yml` | Title and tasks contain "Comadre" in 3 places. Register variable `tts_service_ps` uses stale TTS naming. |
-| 19 | **LOW** | `deploy/ansible/playbooks/restore-keys.yml` | Title and tasks contain "Comadre" in 3 places. Register variable `tts_service_ps` uses stale TTS naming. |
-| 20 | **LOW** | `deploy/ansible/playbooks/health.yml` | Title and tasks contain "Comadre" in 4 places. Register variable `tts_running_containers` uses stale TTS naming. |
+| 15 | **MED** | `deploy/ansible/playbooks/bootstrap.yml` | `compadre-audio-cleanup` cron installed every 6 hours — TTS legacy; STT has no `/audio` volume. Silent no-op forever, misleads operators. |
+| 16 | **MED** | `deploy/ansible/playbooks/health.yml` | `[Diag] Check audio volume size` probes `/audio` — TTS legacy; STT temp files go to `/tmp` via Python `tempfile`. |
+| 17 | **LOW** | `deploy/ansible/playbooks/bootstrap.yml` | `.env` template writes `DOMAIN={{ domain }}` but compose.yaml reads `${DOMAIN}` — these happen to match, but the template also writes `WHISPER_MODEL_SIZE` which compose maps to `COMPADRE_WHISPER_MODEL_SIZE` (mismatch — see #1). |
+| 18 | **LOW** | `deploy/ansible/playbooks/update.yml` | Title and tasks contain "Comadre" in 6 places. Summary line says `Volumes (models, voices, audio, registry) intact` — TTS legacy. |
+| 19 | **LOW** | `deploy/ansible/playbooks/cleanup.yml` | Title and tasks contain "Comadre" in 4 places. Cron removal includes `compadre-daily-restart` (legacy TTS cron — harmless but wrong context). Summary line says `(models, voices, audio, caddy-data, caddy-config)` — TTS legacy. |
+| 20 | **LOW** | `deploy/ansible/playbooks/backup-keys.yml` | Title and tasks contain "Comadre" in 3 places. Register variable `tts_service_ps` uses stale TTS naming. |
+| 21 | **LOW** | `deploy/ansible/playbooks/restore-keys.yml` | Title and tasks contain "Comadre" in 3 places. Register variable `tts_service_ps` uses stale TTS naming. |
+| 22 | **LOW** | `deploy/ansible/playbooks/health.yml` | Title and tasks contain "Comadre" in 4 places. Register variable `tts_running_containers` uses stale TTS naming. |
+| 23 | **LOW** | `docs/configuration-reference.md` | Env-var table documents `COMPADRE_WHISPER_*` prefixed names but `config.py` has no `env_prefix` — operators will set wrong vars that are silently ignored. |
 
 ---
 
@@ -75,6 +78,23 @@ The `compose.yaml` env block for `compadre-stt` sets container env vars with `CO
   - `COMPADRE_WHISPER_LANGUAGE: "${COMPADRE_WHISPER_LANGUAGE:-pt}"` → `WHISPER_LANGUAGE: "${WHISPER_LANGUAGE:-pt}"`
   - `COMPADRE_HF_HOME: "${COMPADRE_HF_HOME:-/app/models}"` → `HF_HOME: "${HF_HOME:-/app/models}"`
 - **Acceptance**: After bootstrap, `docker compose exec compadre-stt env | grep WHISPER` shows `WHISPER_MODEL_SIZE`, not `COMPADRE_WHISPER_MODEL_SIZE`. Config loads the correct env var when overridden.
+
+## Task 1b: Fix docs/configuration-reference.md env var names
+
+`docs/configuration-reference.md` documents Whisper env vars with `COMPADRE_WHISPER_*` and `COMPADRE_HF_HOME` prefixed names. Since `config.py::Settings` has no `env_prefix`, these names are **never read** by the app. Operators setting `COMPADRE_WHISPER_MODEL_SIZE` will get the default silently.
+
+- **File**: `docs/configuration-reference.md`
+- **Changes**:
+  - Rewrite the env-var table to use unprefixed names matching `config.py`:
+    - `COMPADRE_WHISPER_MODEL_SIZE` → `WHISPER_MODEL_SIZE`
+    - `COMPADRE_WHISPER_COMPUTE_TYPE` → `WHISPER_COMPUTE_TYPE`
+    - `COMPADRE_WHISPER_CPU_THREADS` → `WHISPER_CPU_THREADS`
+    - `COMPADRE_WHISPER_LANGUAGE` → `WHISPER_LANGUAGE`
+    - `COMPADRE_HF_HOME` → `HF_HOME`
+  - Update the `.env.example` excerpt code block to show unprefixed names matching the real `.env.example`
+  - Update the Docker Compose environment code block to match the corrected `compose.yaml` from Task 1
+- **Acceptance**: Every env var listed in the doc exists in `src/compadre/config.py::Settings` and is consumed with its exact unprefixed name. `grep -c "COMPADRE_WHISPER_" docs/configuration-reference.md` returns zero.
+
 
 ## Task 2: Fix Caddyfile-no-landing upstream name
 
@@ -158,6 +178,18 @@ The `compose.yaml` env block for `compadre-stt` sets container env vars with `CO
   4. **Service name in docker commands**: All use `compadre-stt` — verify.
 - **Acceptance**: `grep -i 'kokoro\|qwen\|espeak\|voices\|tts-service' deploy/ansible/playbooks/bootstrap.yml` returns zero hits in task logic (comments referencing TTS as contrast are OK). Summary prints correct STT curl command.
 
+## Task 7b: Remove legacy compadre-audio-cleanup cron from bootstrap.yml
+
+The current `bootstrap.yml` installs a `compadre-audio-cleanup` cron that runs every 6 hours, removing files from `/audio`. The STT `Dockerfile` does **not** create `/audio` — temp files are managed by Python `tempfile` in `/tmp`. This cron silently does nothing forever and misleads operators into thinking there is an audio-artefact lifecycle to manage.
+
+- **File**: `deploy/ansible/playbooks/bootstrap.yml`
+- **Changes**:
+  1. Remove the `compadre-audio-cleanup` cron installation task
+  2. Remove `/audio` volume reference from any related tasks
+  3. If the cron is referenced in the summary task, update the summary to not mention it
+- **Acceptance**: `grep -c "audio-cleanup\|/audio" deploy/ansible/playbooks/bootstrap.yml` returns zero.
+
+
 ## Task 8: Fix update.yml TTS references
 
 - **File**: `deploy/ansible/playbooks/update.yml`
@@ -168,22 +200,23 @@ The `compose.yaml` env block for `compadre-stt` sets container env vars with `CO
   4. Verify all docker compose commands use correct project paths and service names
   5. Verify health check poll expects STT health shape (status, models)
   6. Verify `.env.example` sync logic works with current `.env.example` (Task 1 changed it)
+  7. Fix summary line: `Volumes (models, voices, audio, registry) intact` → `Volumes (models, registry) intact`
 - **Acceptance**: Playbook is STT-correct and free of TTS references
 
 ## Task 9: Rewrite deploy-models.yml for Whisper model cache
 
 The current playbook is a skeleton for Qwen3 GGUF model deployment. Repurpose for faster-whisper HuggingFace cache pre-seeding (air-gapped / slow-link deployments).
 
+This is an iterative task and may take 2+ hours. **Scope to Mode B only for Plan 03** — one-shot download trigger via `docker compose run`. Mode A (pre-seed from operator's local HF cache via SCP) is documented as future work.
+
 - **File**: `deploy/ansible/playbooks/deploy-models.yml`
 - **Changes**:
-  1. Rewrite title and preamble: describe Whisper model cache pre-seeding via HuggingFace Hub
-  2. Add two operating modes:
-     - **Mode A — Pre-seed from operator's local HF cache**: SCP the `~/.cache/huggingface/hub/` directory (or a tarball) to the VPS, then deploy into the `compadre-models` named volume via a helper alpine container
-     - **Mode B — Trigger download on VPS**: Run a one-shot `docker compose run` that invokes `python -c "from compadre.download import ensure_whisper_model; ensure_whisper_model()"` to pull the model before the service starts
-  3. Update the model directory paths to match faster-whisper's HuggingFace cache layout (repo: `mobiuslabsgmbh/faster-whisper-large-v3-turbo` per `download.py`)
-  4. Update summary task to reference Whisper model, not Qwen3
-  5. Document that running this playbook before `bootstrap.yml` means the service starts with the model pre-cached (no download delay on first boot)
-  6. Remove all Qwen3-specific tasks and descriptions
+  1. Rewrite title and preamble: describe Whisper model cache download via HuggingFace Hub
+  2. **Mode B — Trigger download on VPS**: Run a one-shot `docker compose run` that invokes `python -c "from compadre.download import ensure_whisper_model; ensure_whisper_model()"` to pull the model before the service starts
+  3. Update summary task to reference Whisper model, not Qwen3
+  4. Document that running this playbook before `bootstrap.yml` means the service starts with the model pre-downloaded (no download delay on first boot)
+  5. Remove all Qwen3-specific tasks and descriptions
+  6. Keep Mode A (air-gapped pre-seed) as a **commented future-work section** in the playbook
 - **Files to inspect**: `src/compadre/download.py` (exact model repo and cache paths)
 - **Acceptance**: After running `deploy-models.yml`, `docker compose exec compadre-stt ls /app/models/hub/` shows the model cache directory populated
 
@@ -213,8 +246,8 @@ The current playbook is a skeleton for Qwen3 GGUF model deployment. Repurpose fo
   4. Verify all assertion paths use correct `key_registry_db_path` (all derive from inventory var — verify they work)
   5. Verify `[Diag] Caddy container state` uses correct container name
   6. Verify `[Diag] Query /health endpoint` expects `models` not `voices` in health response
-  7. Verify `[Diag] Check audio volume size` checks `/audio` path (exists in STT container? Verify — may need adjustment for STT tempfile dir)
-- **Acceptance**: `health.yml` passes all assertions on a healthy STT deployment; `grep -i 'qwen\|kokoro\|voice' deploy/ansible/playbooks/health.yml` returns zero hits in task logic
+  7. Remove `[Diag] Check audio volume size` task entirely — STT has no `/audio` volume; temp files go to `/tmp` via Python `tempfile`. Also remove the `Verify audio cleanup cron is active` hint from the disk-usage warning message
+- **Acceptance**: `health.yml` passes all assertions on a healthy STT deployment; `grep -i 'qwen\|kokoro\|voice\|audio volume\|audio cleanup' deploy/ansible/playbooks/health.yml` returns zero hits in task logic
 
 ## Task 13: Fix cleanup.yml TTS references
 
@@ -223,9 +256,11 @@ The current playbook is a skeleton for Qwen3 GGUF model deployment. Repurpose fo
   1. Title: `Comadre Cleanup Playbook — Full Decommission` → `Compadre Cleanup Playbook`
   2. `[TTS] Stop and remove containers...` → `[STT] Stop and remove containers...`
   3. Remove `compadre-daily-restart` cron removal (legacy TTS cron — doesn't exist for STT)
-  4. Verify cron names match what bootstrap installs: `compadre-audio-cleanup`, `compadre-daily-suspension`, `compadre-keys-backup`
-  5. Verify summary references correct service name
-- **Acceptance**: Cleanup removes all Compadre artifacts; `grep -i 'qwen\|kokoro\|voice' deploy/ansible/playbooks/cleanup.yml` returns zero hits
+  4. Remove `compadre-audio-cleanup` cron removal (STT has no audio cleanup cron — see Task 7b)
+  5. Verify cron names match what bootstrap installs: `compadre-daily-suspension`, `compadre-keys-backup`
+  6. Verify summary references correct service name
+  7. Fix summary line: `Docker volumes removed (models, voices, audio, caddy-data, caddy-config)` → `Docker volumes removed (models, registry, caddy-data, caddy-config)`
+- **Acceptance**: Cleanup removes all Compadre artifacts; `grep -i 'qwen\|kokoro\|voice\|audio' deploy/ansible/playbooks/cleanup.yml` returns zero hits
 
 ## Task 14: Test bootstrap.yml on 10.10.10.208
 

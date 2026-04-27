@@ -77,10 +77,10 @@ def decode_audio_to_wav(
     return output_path
 
 
-def get_audio_duration(audio_path: Path) -> float:
+def get_audio_duration(audio_path: Path) -> float | None:
     """Return audio duration in seconds via ffprobe.
 
-    Returns 0.0 if detection fails.
+    Returns ``None`` if detection fails (corrupted file or unsupported format).
     """
     cmd = [
         "ffprobe",
@@ -103,4 +103,4 @@ def get_audio_duration(audio_path: Path) -> float:
             return float(result.stdout.strip())
     except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
         logger.warning("ffprobe duration detection failed: %s", exc)
-    return 0.0
+    return None

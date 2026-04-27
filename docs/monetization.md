@@ -1,3 +1,5 @@
+> **Last updated:** 2026-04-26
+
 # Monetization
 
 Compadre monetization is policy-driven, per API key, with the encrypted SQLite key registry as the single source of truth. There is no global on/off toggle: every request to `POST /v1/audio/transcriptions` is authenticated against the registry and rate-limited by the specific key's `rate_limit_rpm`. The `compadre-keys` CLI is the sole operator surface for creating customers, issuing keys, adjusting limits, and retiring keys.

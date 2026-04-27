@@ -1,3 +1,5 @@
+> **Last updated:** 2026-04-26
+
 # Proxmox VM Setup for Compadre
 
 Step-by-step guide for creating a Debian 13 VM on Proxmox VE to run Compadre.

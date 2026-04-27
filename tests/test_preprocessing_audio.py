@@ -129,8 +129,8 @@ class TestGetAudioDuration:
         assert duration == 12.345
         mock_run.assert_called_once()
 
-    def test_returns_zero_on_nonzero_returncode(self, tmp_path: Path) -> None:
-        """ffprobe exit code != 0 → returns 0.0."""
+    def test_returns_none_on_nonzero_returncode(self, tmp_path: Path) -> None:
+        """ffprobe exit code != 0 → returns None."""
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"corrupt")
 
@@ -142,10 +142,10 @@ class TestGetAudioDuration:
 
             duration = get_audio_duration(audio_path)
 
-        assert duration == 0.0
+        assert duration is None
 
-    def test_returns_zero_on_empty_stdout(self, tmp_path: Path) -> None:
-        """ffprobe exits zero but stdout is blank → returns 0.0."""
+    def test_returns_none_on_empty_stdout(self, tmp_path: Path) -> None:
+        """ffprobe exits zero but stdout is blank → returns None."""
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"dummy")
 
@@ -157,11 +157,11 @@ class TestGetAudioDuration:
 
             duration = get_audio_duration(audio_path)
 
-        assert duration == 0.0
+        assert duration is None
 
-    def test_returns_zero_on_non_numeric_stdout(self, tmp_path: Path) -> None:
+    def test_returns_none_on_non_numeric_stdout(self, tmp_path: Path) -> None:
         """ffprobe stdout is not a float → ``ValueError`` caught, returns
-        0.0."""
+        None."""
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"dummy")
 
@@ -173,10 +173,10 @@ class TestGetAudioDuration:
 
             duration = get_audio_duration(audio_path)
 
-        assert duration == 0.0
+        assert duration is None
 
-    def test_returns_zero_on_timeout_expired(self, tmp_path: Path) -> None:
-        """ffprobe timeout → caught, returns 0.0."""
+    def test_returns_none_on_timeout_expired(self, tmp_path: Path) -> None:
+        """ffprobe timeout → caught, returns None."""
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"dummy")
 
@@ -185,4 +185,4 @@ class TestGetAudioDuration:
 
             duration = get_audio_duration(audio_path)
 
-        assert duration == 0.0
+        assert duration is None

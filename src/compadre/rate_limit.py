@@ -82,7 +82,7 @@ def get_client_ip(request: Request) -> str:
 # pre-auth surface of /v1/audio/transcriptions so denied-key spam can't
 # bypass the per-key bucket (auth runs before per-key rate-limit).
 _HEALTH_PER_IP_LIMIT = "60/minute"
-_SPEECH_PER_IP_LIMIT = "600/minute"
+_TRANSCRIPTION_PER_IP_LIMIT = "600/minute"
 
 
 async def _check_per_ip_bucket(
@@ -138,7 +138,7 @@ async def check_transcription_per_ip_rate_limit(request: Request) -> None:
     unaffected; the bucket trips only on bot-shaped traffic.
     """
     await _check_per_ip_bucket(
-        request, limit_str=_SPEECH_PER_IP_LIMIT, bucket_prefix="transcription-ip"
+        request, limit_str=_TRANSCRIPTION_PER_IP_LIMIT, bucket_prefix="transcription-ip"
     )
 
 

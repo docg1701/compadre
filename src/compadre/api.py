@@ -80,22 +80,39 @@ async def transcribe_audio(
             hint=f"Maximum upload size is {settings.max_upload_size_mb} MB.",
         )
 
-    # Save uploaded file to temp
+    # Stream upload to temp file to avoid loading entire file into memory.
     suffix = Path(file.filename or "audio").suffix or ".tmp"
-    with NamedTemporaryFile(suffix=suffix, delete=False) as tmp_in:
-        content = await file.read()
-        if len(content) > settings.max_upload_size_mb * 1024 * 1024:
-            tmp_in.close()
-            Path(tmp_in.name).unlink(missing_ok=True)
-            raise InvalidRequestError(
-                message=f"File too large ({len(content) / (1024 * 1024):.1f} MB)",
-                hint=f"Maximum upload size is {settings.max_upload_size_mb} MB.",
-            )
-        tmp_in.write(content)
-        input_path = Path(tmp_in.name)
+    input_path: Path | None = None
+    try:
+        with NamedTemporaryFile(suffix=suffix, delete=False) as tmp_in:
+            input_path = Path(tmp_in.name)
+            max_bytes = settings.max_upload_size_mb * 1024 * 1024
+            total = 0
+            chunk_size = 64 * 1024
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise InvalidRequestError(
+                        message=f"File too large ({total / (1024 * 1024):.1f} MB)",
+                        hint=f"Maximum upload size is {settings.max_upload_size_mb} MB.",
+                    )
+                tmp_in.write(chunk)
+    except Exception:
+        if input_path is not None:
+            input_path.unlink(missing_ok=True)
+        raise
 
     # Validate audio duration
     duration = get_audio_duration(input_path)
+    if duration is None:
+        input_path.unlink(missing_ok=True)
+        raise InvalidRequestError(
+            message="Unable to determine audio duration",
+            hint="The file may be corrupted or not a valid audio format.",
+        )
     if duration > settings.max_audio_duration_seconds:
         input_path.unlink(missing_ok=True)
         raise InvalidRequestError(
@@ -185,4 +202,4 @@ async def transcribe_audio(
     if fmt == ResponseFormat.srt:
         return Response(content=format_srt(segments), media_type="text/plain")
     # fmt == ResponseFormat.vtt
-    return Response(content=format_vtt(segments), media_type="text/plain")
+    return Response(content=format_vtt(segments), media_type="text/vtt")

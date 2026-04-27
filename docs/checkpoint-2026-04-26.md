@@ -116,7 +116,22 @@ curl -k -X POST https://10.10.10.208/v1/audio/transcriptions \
 
 ---
 
-## 6. Próximos passos recomendados
+## 6. Revisão de Código — Correções Aplicadas (2026-04-27)
+
+Sessão de revisão completa do código com "fresh eyes". Foram encontrados e corrigidos bugs pre-existentes e novos:
+
+| # | Arquivo | Problema | Severidade |
+|---|---------|----------|------------|
+| 1 | `src/compadre/api.py` | Upload carregava arquivo inteiro em memória (`await file.read()`) antes de validar tamanho — vetor DoS | 🔴 Alta |
+| 2 | `src/compadre/api.py` | `NamedTemporaryFile(delete=False)` vazava arquivo temporário se leitura falhasse | 🔴 Alta |
+| 3 | `src/compadre/preprocessing.py` | `get_audio_duration()` retornava `0.0` quando ffprobe falhava, permitindo bypass da validação de 10 min | 🔴 Alta |
+| 4 | `src/compadre/api.py` | Resposta VTT usava `media_type="text/plain"` ao invés de `"text/vtt"` | 🟡 Média |
+| 5 | `src/compadre/health.py` | `_get_memory_mb()` assumia `ru_maxrss` em KB (Linux), mas em macOS é bytes — subestimava em 1024× | 🟡 Média |
+| 6 | `src/compadre/rate_limit.py` | Constante `_SPEECH_PER_IP_LIMIT` mantinha nome legado da era TTS | 🟢 Baixa |
+
+**Testes atualizados:** `test_preprocessing_audio.py` (4 casos), `test_api.py` (1 caso). Todos passando.
+
+## 7. Próximos passos recomendados
 
 1. **Rodar load tests no VPS**: Validar throughput real com áudios de 5-30s
 2. **Teste com áudio real do WhatsApp**: Verificar qualidade de transcrição PT-BR

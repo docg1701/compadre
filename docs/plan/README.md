@@ -11,7 +11,7 @@ Each plan is self-contained and executable by a senior developer.
 
 | # | Plan | File | Effort | Focus |
 |---|------|------|--------|-------|
-| 1 | Documentation Audit & Correction | [plan-01.md](plan-01.md) | 4–6h | Fix stale Comadre TTS refs, update all docs |
+| 1 | ✅ Documentation Audit & Correction | [plan-01.md](plan-01.md) | 4–6h | Fix stale Comadre TTS refs, update all docs |
 | 2 | API Functional Validation | [plan-02.md](plan-02.md) | 6–10h | Test all endpoints, formats, auth, limits |
 | 3 | Ansible Hardening & Fresh Deploy | [plan-03.md](plan-03.md) | 8–12h | Make all playbooks work on fresh VPS 10.10.10.208 |
 | 4 | CLI Exhaustive Testing | [plan-04.md](plan-04.md) | 6–8h | Test all 21 compadre-keys verbs + edge cases |
@@ -55,7 +55,7 @@ Plan 1 (Docs)
 | Ansible playbooks (7) | ⚠️ Adapted from Comadre; need validation |
 | Tests | ⚠️ 248 passed; 11 failures + 10 errors are non-regression tests that need Caddy in Docker |
 | CI pipeline | ⚠️ Functional but monolithic; needs parallel jobs and non-regression gates |
-| Documentation | ⚠️ Many TTS/Comadre staleness issues |
+| Documentation | ✅ Audit complete; stale refs fixed (2026-04-27) |
 
 ---
 

@@ -51,9 +51,8 @@ The existing mocked test suite is already deep:
 - **Files**: All files with failures from `uv run pytest -m "not slow"`
 - **Changes**:
   - Run `uv run pytest -m "not slow" --tb=long -q` and triage every failure
-  - Per checkpoint 2026-04-26, the non-regression tests (`test_security_headers.py`, `test_request_body_limit.py`, etc.) fail with `ConnectionRefusedError` because they need Caddy running
-  - For Docker-dependent non-regression tests: add a `pytest.skipif` guard in `tests/test_non_regression/conftest.py` that checks for Docker and Caddy availability; skip with a clear message when unavailable
-  - Document in the non-regression `README.md` how to run those tests: `docker compose up -d && uv run pytest tests/test_non_regression/`
+  - Non-regression tests already skip gracefully when Docker is unavailable (see `tests/test_non_regression/conftest.py`). Verify this behavior by running the suite in an environment without Docker
+  - Document in the non-regression `README.md` how to run those tests: `uv run pytest -m non_regression tests/test_non_regression/ -v`
 - **Acceptance**: `uv run pytest -m "not slow" --tb=short -q` exits 0 (skips allowed)
 
 ### 2. Add `pytest.mark.slow` marker infrastructure
@@ -221,7 +220,7 @@ The existing mocked test suite is already deep:
   - ✅ The `compose_stack` session fixture in `tests/test_non_regression/conftest.py` already checks for Docker CLI (`shutil.which("docker")`) and Docker daemon (`docker version`) and calls `pytest.skip()` when either is unavailable. Tests already skip gracefully — no new fixture needed.
   - Verify the `README.md` already documents the run command; update if necessary to reference the exact pytest invocation:
     ```bash
-    docker compose up -d && uv run pytest -m non_regression tests/test_non_regression/ -v
+    uv run pytest -m non_regression tests/test_non_regression/ -v
     ```
 - **Acceptance**: `uv run pytest tests/test_non_regression/` skips cleanly without Docker; runs all 7 tests with Docker up
 
@@ -275,7 +274,7 @@ The existing mocked test suite is already deep:
 | File > 25 MB | 400 | `test_api.py` (existing) + Task 10 boundary |
 | File exactly 25 MB | 200 | Task 10 (new) |
 | Duration > 10 min | 400 | Task 10 (new) |
-| Duration exactly 10 min | 200 or 400 | Task 10 (new, verify spec) |
+| Duration exactly 10 min | 200 | Task 10 (new) |
 | Duration < 10 min | 200 | Task 10 (new) |
 | Caddy Content-Length > 1 MiB | 413 (Caddy) | `test_request_body_limit.py` (existing non-regression) |
 
