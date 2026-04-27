@@ -169,11 +169,33 @@ class TestTranscribe:
         with pytest.raises(InvalidRequestError, match="empty"):
             engine.transcribe(audio_path)
 
+    def test_raises_invalid_request_error_on_unsupported_language(
+        self, tmp_path: Path
+    ) -> None:
+        """A ``ValueError`` from faster-whisper (e.g. unsupported language
+        code) is converted to ``InvalidRequestError`` (400) with a
+        sanitized message — no internal list of valid codes is leaked
+        (SEC-001)."""
+        engine = WhisperEngine()
+        mock_model = MagicMock()
+        mock_model.transcribe.side_effect = ValueError(
+            "'NOTAVALIDLANG' is not a valid language code "
+            "(accepted language codes: af, am, ar, ...)"
+        )
+        engine._model = mock_model
+
+        audio_path = tmp_path / "valid.wav"
+        audio_path.write_bytes(_generate_minimal_wav())
+
+        with pytest.raises(InvalidRequestError, match="Unsupported language code"):
+            engine.transcribe(audio_path, language="NOTAVALIDLANG")
+
     def test_raises_compadre_error_on_transcription_failure(
         self, tmp_path: Path
     ) -> None:
-        """If the underlying ``faster_whisper`` call raises, it is wrapped
-        in ``CompadreError`` with the original message embedded."""
+        """If the underlying ``faster_whisper`` call raises an unexpected
+        exception, it is wrapped in ``CompadreError`` (500) with a generic
+        message — no internal detail is leaked to the client."""
         engine = WhisperEngine()
         mock_model = MagicMock()
         mock_model.transcribe.side_effect = RuntimeError(
@@ -184,5 +206,5 @@ class TestTranscribe:
         audio_path = tmp_path / "valid.wav"
         audio_path.write_bytes(_generate_minimal_wav())
 
-        with pytest.raises(CompadreError, match="Transcription failed"):
+        with pytest.raises(CompadreError, match="internal server error"):
             engine.transcribe(audio_path)

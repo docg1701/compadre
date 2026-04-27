@@ -111,7 +111,8 @@ class WhisperEngine:
             Tuple of (segments list, transcription info object).
 
         Raises:
-            InvalidRequestError: If audio file is missing or empty.
+            InvalidRequestError: If audio file is missing, empty, or if the
+                language code is unsupported.
             CompadreError: If transcription fails.
         """
         if self._model is None:
@@ -150,10 +151,22 @@ class WhisperEngine:
                 info.language_probability,
             )
             return segments, info
+        except ValueError as exc:
+            # faster-whisper raises ValueError for unsupported language codes
+            # and other parameter errors. Sanitize to avoid leaking the
+            # engine's internal list of valid codes (SEC-001).
+            logger.warning("Transcription parameter error: %s", exc)
+            raise InvalidRequestError(
+                message="Unsupported language code",
+                hint=(
+                    "Use a valid ISO language code or omit the field"
+                    " for auto-detection."
+                ),
+            ) from exc
         except Exception as exc:
             logger.error("Transcription failed: %s", exc, exc_info=True)
             raise CompadreError(
-                message=f"Transcription failed: {exc}",
+                message="An internal server error occurred",
                 status_code=500,
                 error_type="server_error",
                 hint="The audio may be corrupted or in an unsupported format.",

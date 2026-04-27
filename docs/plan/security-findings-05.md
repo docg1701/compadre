@@ -84,11 +84,13 @@ curl -k -X POST https://10.10.10.208/v1/audio/transcriptions \
 {
   "error": {
     "message": "Transcription failed: 'NOTAVALIDLANG' is not a valid language code (accepted language codes: af, am, ar, as, az, ba, be, bg, bn, bo, br, bs, ca, cs, cy, da, de, el, en, es, et, eu, fa, fi, fo, fr, gl, gu, ha, haw, he, hi, hr, ht, hu, hy, id, is, it, ja, jw, ka, kk, km, kn, ko, la, lb, ln, lo, lt, lv, mg, mi, mk, ml, mn, mr, ms, mt, my, ne, nl, nn, no, oc, pa, pl, ps, pt, ro, ru, sa, sd, si, sk, sl, sn, so, sq, sr, su, sv, sw, ta, te, tg, th, tk, tl, tr, tt, uk, ur, uz, vi, ...)",
-    "type": "transcription_error",
-    "hint": null
+    "type": "server_error",
+    "hint": "The audio may be corrupted or in an unsupported format."
   }
 }
 ```
+
+*Note:* The original finding documented `type: "transcription_error"` and `hint: null`; the actual codebase emits `type: "server_error"` with a non-null hint. The core issue remains valid: a client-supplied language code triggers HTTP 500 and leaks the engine's internal list of valid codes in the `message` field.
 
 **Impact**:
 - Information disclosure: reveals the exact faster-whisper language code list, aiding fingerprinting
@@ -122,7 +124,7 @@ curl -k -X POST https://10.10.10.208/v1/audio/transcriptions \
 
 ### SEC-002: Server Header on HTTP-to-HTTPS Redirect
 
-- **Severity**: Medium
+- **Severity**: Low
 - **Affected Endpoint**: `http://10.10.10.208/` (port 80)
 - **Affected Component**: Caddy automatic HTTPS redirect
 
@@ -162,6 +164,8 @@ curl -k -sI http://10.10.10.208/ | grep -i server
 ```
 
 **Status**: Open
+
+*Severity rationale:* Per the plan's severity scale, minor information disclosure (version/technology fingerprinting) and missing security headers on low-impact paths are rated **Low**, not Medium. The HTTP→HTTPS redirect is a transient hop that immediately upgrades to HTTPS (where the header is stripped), so the exposure window is minimal.
 
 ---
 
@@ -417,6 +421,24 @@ This allows an attacker to distinguish between "this key never existed" and "thi
 - [x] All findings classified by severity
 - [x] Every finding has Steps to Reproduce, Impact, Remediation, and Verification
 - [x] Service health verified after all test categories
+
+---
+
+## Methodology Notes & Review Gaps
+
+1. **Caddy 1 MiB bounded-payload vs. app 25 MB upload limit**
+   - The report conflates Plan task 4.4 (26 MB file → app-level 400) with task 4.5 (Content-Length > 1 MiB → Caddy 413).
+   - Because Caddy rejects any API body > 1 MiB before it reaches the upstream, the application-level 25 MB limit is never exercised in production. A file between 1 MiB and 25 MiB (e.g. a 3-minute voice message) would be rejected at the edge rather than by the app's size validator.
+   - The report does not flag this functional tension; it should be noted as a deployment-configuration observation even if it is not a exploitable vulnerability.
+
+2. **Missing explicit test results**
+   - Plan task 4.17 (5 concurrent 25 MB uploads + OOM monitoring) is not explicitly documented in the detailed results.
+   - Plan task 5.7 (650 requests/min to `/v1/audio/transcriptions` without auth → 429 at 601) is not explicitly documented in the Rate-Limit section.
+   - The validation checklist asserts these were tested, but the report lacks the raw data / observation notes.
+
+3. **Caddyfile-no-landing static analysis (Plan 7.9)**
+   - The plan described three "Critical differences" (upstream name `tts-service`, missing `path` scoping, plain-text responses / `caddy_error` taxonomy). These bugs were already fixed before the pentest began (see `plan-05-review.md`).
+   - The report correctly omits them as findings, documenting only the benign CSP mismatch (SEC-006, Info).
 
 ---
 

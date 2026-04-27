@@ -1,3 +1,33 @@
+# Progress — Plan 05 Review
+
+## Review
+
+### Correct (already good)
+- **Attack-surface coverage is comprehensive** across all 8 planned surfaces: reconnaissance, auth bypass, authorization, input fuzzing, rate-limit evasion, information disclosure, Caddy/TLS protections, and landing-page client-side security.
+- **SEC-001 is a valid finding** — invalid `language` codes cause faster-whisper to raise `ValueError`, which the original `stt.py` caught as a generic 500 and reflected the full engine error message (including the complete list of valid language codes). This is both an information-disclosure and wrong-status-code issue.
+- **Auth bypass methodology was sound** — every denial surface (missing header, empty bearer, wrong scheme, shape-invalid, NUL byte, SQLi payload, timing oracle, cache poisoning) was tested and documented. No bypass was found.
+- **Rate-limit testing was sound** — XFF spoofing, multiple headers, bucket stability across rotation, and per-key / per-IP limits were all verified. No practical evasion was identified.
+- **Landing-page assessment was correct** — `textContent` usage prevents XSS, no API key client-side storage, CSP `'unsafe-inline'` is an accepted design decision, and clickjacking protections are present.
+- **No false positives** in the accepted/info findings (SEC-003 through SEC-008).
+
+### Fixed (issue and resolution)
+- **Issue:** `SEC-001` observed response in the report was inaccurate — it documented `type: "transcription_error"` and `hint: null`, but the actual codebase emits `type: "server_error"` with a non-null hint.
+  **Resolution:** Corrected the observed response in `docs/plan/security-findings-05.md` to match the actual code behavior. The finding remains valid because the core problem (500 + leaked language list in `message`) still exists.
+- **Issue:** `SEC-001` was only documented, not fixed in code. A client-controlled parameter causing a 500 with information disclosure is a real bug.
+  **Resolution:** Hardened `src/compadre/stt.py::transcribe()` to catch `ValueError` from faster-whisper separately from generic `Exception`, converting it to `InvalidRequestError` (400) with a sanitized message (`"Unsupported language code"`) that does not leak the engine's internal valid-code list. Generic unexpected exceptions now emit the safe generic message `"An internal server error occurred"`.
+- **Issue:** `SEC-002` severity was inflated to **Medium** in the report, but the plan's own severity scale classifies "minor information disclosure" and "missing security header that enables low-impact attack" as **Low**.
+  **Resolution:** Downgraded `SEC-002` from Medium to Low in `docs/plan/security-findings-05.md` and added a severity-rationale note.
+- **Issue:** `tests/test_stt.py::test_raises_compadre_error_on_transcription_failure` expected the old leaky error message (`"Transcription failed"`).
+  **Resolution:** Updated the test to expect the new generic `"internal server error"` message, and added a new regression test (`test_raises_invalid_request_error_on_unsupported_language`) that asserts `ValueError` from the engine is converted to `InvalidRequestError` (400) with a sanitized hint.
+
+### Note (observations / follow-up)
+- **Caddy 1 MiB bounded-payload policy makes the app's 25 MB upload limit unreachable in production.** The report conflates Plan task 4.4 (26 MB app-level test) with task 4.5 (Caddy 1 MiB test). Any audio file larger than ~1 MiB is rejected by Caddy before it reaches the upstream, so the application-level size validator (`settings.max_upload_size_mb`) is dead code for the transcription endpoint under the current Caddy configuration. This is a functional deployment inconsistency, not a security vulnerability, but it means the service cannot accept the advertised 25 MB / 10-minute files. A follow-up task should either raise the Caddy limit to ~30 MiB or lower the app limit to match.
+- **Missing explicit test documentation:** Plan tasks 4.17 (concurrent 25 MB uploads + OOM monitoring) and 5.7 (600/min per-IP transcription limit) are asserted in the validation checklist but lack raw observation notes in the report.
+- **Caddyfile-no-landing "Critical differences" from Plan 7.9 were already fixed.** The three bugs described in the plan (upstream name `tts-service`, missing `path` scoping, plain-text responses / `caddy_error` taxonomy) were resolved in `plan-05-review.md` before the pentest began. The report correctly did not re-report them.
+- **All 11 STT unit tests pass after the fix.** No regressions introduced.
+
+---
+
 # Progress — Plan 04 Review
 
 ## Review
