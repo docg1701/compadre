@@ -21,23 +21,24 @@ Each plan is self-contained and executable by a senior developer.
 
 ---
 
-## Execution Order
+## Execution Order (Sequential)
 
 ```
-Plan 1 (Docs)
-  ├─→ Plan 2 (API Tests)          [can start after Plan 1 scope is clear]
-  ├─→ Plan 3 (Ansible/Deploy)     [needs Plan 1 for correct env vars]
-  │     ├─→ Plan 4 (CLI Tests)    [needs fresh deployed VPS]
-  │     ├─→ Plan 5 (Security)     [needs VPS + API behavior known]
-  │     ├─→ Plan 6 (CPU Speed)    [needs VPS for real hardware benchmark]
-  │     └─→ Plan 7 (CI)           [needs stable deploy]
+Plan 2 (API Tests)           [local — docker compose]
+  └─→ Plan 3 (Ansible/Deploy)   [VPS 10.10.10.208]
+        └─→ Plan 4 (CLI Tests)  [VPS — key management]
+              └─→ Plan 5 (Security)   [VPS — pentest]
+                    └─→ Plan 6 (CPU Speed)  [VPS — engine benchmark]
+                          └─→ Plan 7 (CI)     [GitHub Actions — last, needs stable codebase]
 ```
 
-**Recommended cycle strategy:**
-- **Cycle 1:** Plan 1 + Plan 2 (parallel — docs and local API tests)
-- **Cycle 2:** Plan 3 (deploy on VPS)
-- **Cycle 3:** Plan 4 + Plan 5 + Plan 6 (parallel on VPS — CLI, security, and CPU benchmark)
-- **Cycle 4:** Plan 7 (last — CI must reflect stable codebase)
+Each plan depends on the previous one completing and passing review:
+- Plan 2 validates the API locally before deploying
+- Plan 3 deploys on the VPS, unlocking all VPS-dependent plans
+- Plans 4, 5, 6 run on the VPS in sequence (CLI → security → benchmark)
+- Plan 7 runs last — CI must reflect the stable, validated codebase
+
+**Cumulative effort:** ~54–88h across 6 plans.
 
 ---
 
