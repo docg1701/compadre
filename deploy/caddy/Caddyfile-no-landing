@@ -17,59 +17,71 @@
 	}
 
 	# FR49 — bounded-payload policy (mirrors the with-landing Caddyfile).
-	# No `path` scoping here because the entire site is the API surface.
 	# See deploy/caddy/Caddyfile for the full rationale and handle-order
 	# contract. `request_body max_size` removed: with chunked, malformed,
 	# missing, and oversized all rejected at matcher time, there is no way
 	# for a >1 MiB body to reach reverse_proxy.
 
-	# 1. Any Transfer-Encoding header → 411 (force Content-Length).
+	# 1. Any Transfer-Encoding header on @api → 411 (force Content-Length).
 	@api_has_te {
+		path /v1/* /health
 		header Transfer-Encoding *
 	}
 	handle @api_has_te {
-		respond "Transfer-Encoding not permitted; send Content-Length" 411
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Transfer-Encoding not permitted on /v1/* and /health; send Content-Length","type":"invalid_request_error","hint":"Use Content-Length framing for /v1/* and /health requests."}}` 411
 	}
 
-	# 2. Malformed Content-Length (non-numeric, >10 digits, duplicate) → 400.
+	# 2. Content-Length header present but not a canonical non-negative
+	# integer of 1-10 digits → 400.
 	@api_malformed_cl {
+		path /v1/* /health
 		header Content-Length *
 		expression `!{http.request.header.content-length}.matches('^[0-9]{1,10}$')`
 	}
 	handle @api_malformed_cl {
-		respond "malformed Content-Length header" 400
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Malformed Content-Length header","type":"invalid_request_error","hint":"Send a single non-negative integer Content-Length within 1-10 digits."}}` 400
 	}
 
 	# 3. Valid Content-Length > 1 MiB → 413.
 	@api_oversized_body {
+		path /v1/* /health
 		header Content-Length *
 		expression `{http.request.header.content-length}.matches('^[0-9]{1,10}$') && int({http.request.header.content-length}) > 1048576`
 	}
 	handle @api_oversized_body {
-		respond "Payload Too Large" 413
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Payload too large","type":"invalid_request_error","hint":"Maximum request body size for /v1/* and /health is 1 MiB."}}` 413
 	}
 
-	# 4. Write method without body-framing → 411.
+	# 4. Write method (POST/PUT/PATCH) with neither Content-Length nor
+	# Transfer-Encoding → 411.
 	@api_missing_cl {
+		path /v1/* /health
 		method POST PUT PATCH
 		not header Content-Length *
 		not header Transfer-Encoding *
 	}
 	handle @api_missing_cl {
-		respond "Length Required" 411
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Content-Length header is required","type":"invalid_request_error","hint":"Use Content-Length framing for POST/PUT/PATCH requests on /v1/* and /health."}}` 411
 	}
 
-	# 5. Everything else → tts-service.
-	reverse_proxy {
-		dynamic a {
-			name tts-service
-			port 8000
-			refresh 5s
+	# 5. API paths → compadre-stt.
+	@api path /v1/* /health
+	handle @api {
+		reverse_proxy {
+			dynamic a {
+				name compadre-stt
+				port 8000
+				refresh 5s
+			}
+			lb_policy least_conn
+			trusted_proxies private_ranges
+			header_down -server
+			header_down -via
 		}
-		lb_policy least_conn
-		trusted_proxies private_ranges
-		header_down -server
-		header_down -via
 	}
 
 	# F67 — re-apply the security headers + Server/Via strip on Caddy-level
@@ -77,7 +89,7 @@
 	# @api respond blocks above). Without this, Caddy's internal error path
 	# bypasses the site-level `header { ... }` middleware. Mirrors the same
 	# block in deploy/caddy/Caddyfile (security contract is symmetric). F70
-	# also rewrites the body to the project's ComadreError envelope.
+	# also rewrites the body to the project's CompadreError envelope.
 	handle_errors {
 		header {
 			Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -90,7 +102,23 @@
 			-Server
 			-Via
 		}
-		respond `{"error":{"message":"{err.status_text}","type":"caddy_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		@cerr_404 expression {err.status_code} == 404
+		handle @cerr_404 {
+			respond `{"error":{"message":"{err.status_text}","type":"not_found_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_405 expression {err.status_code} == 405
+		handle @cerr_405 {
+			respond `{"error":{"message":"{err.status_text}","type":"invalid_request_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_4xx expression {err.status_code} >= 400 && {err.status_code} < 500
+		handle @cerr_4xx {
+			respond `{"error":{"message":"{err.status_text}","type":"invalid_request_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		@cerr_5xx expression {err.status_code} >= 500
+		handle @cerr_5xx {
+			respond `{"error":{"message":"{err.status_text}","type":"server_error","hint":null,"status":{err.status_code}}}` {err.status_code}
+		}
+		respond `{"error":{"message":"{err.status_text}","type":"server_error","hint":null,"status":{err.status_code}}}` {err.status_code}
 	}
 
 	log {

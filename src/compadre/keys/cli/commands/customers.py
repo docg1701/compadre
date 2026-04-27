@@ -1411,7 +1411,7 @@ def correct_tax_id_cmd(
         )
         raise typer.Exit(code=2)
 
-    # 3. Resolve kind + canonical digits + checksum (exit 4 on bad CPF/CNPJ).
+    # 3. Resolve kind + canonical digits + checksum (exit 2 on bad CPF/CNPJ).
     if new_cpf is not None:
         new_kind: TaxIdKind = "cpf"
         digits = strip_tax_id(new_cpf)

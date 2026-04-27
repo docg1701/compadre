@@ -1,6 +1,6 @@
 #!/bin/sh
 # Compadre restore — SWAP step. Runs in an alpine helper container while
-# tts-service is stopped. Removes WAL/SHM sidecars (invalidated by the
+# compadre-stt is stopped. Removes WAL/SHM sidecars (invalidated by the
 # swap), moves the staged registry.db into place, and chmod 0600.
 #
 # Driven by deploy/ansible/playbooks/restore-keys.yml's

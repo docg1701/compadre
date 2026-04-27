@@ -36,7 +36,7 @@ chmod 0700 "$STAGING"
 #   ``Salted__``   → AES-256-CBC + PBKDF2 (legacy ``openssl enc``-only
 #                   archives, kept readable so 2.0.0-era backups don't
 #                   require operator intervention).
-# B23 — `xxd` is not in the slim Python tts-service image; use `od`
+# B23 — `xxd` is not in the slim Python compadre-stt image; use `od`
 # (coreutils, always present) instead so restore-stage works without
 # adding vim-common just for hex dumping eight bytes.
 HEADER_BYTES="$(head -c 8 "$BACKUP_FILE" | od -An -tx1 | tr -d ' \n')"

@@ -289,6 +289,16 @@ $CE compadre-keys show "$C1" --format json
 $CE compadre-keys show cust_00000000000000000000000000
 echo "Exit: $?"
 # Expected: exit 3, "Not found"
+
+# --audit-tail bounds: 0 rejected
+$CE compadre-keys show "$C1" --audit-tail 0
+echo "Exit: $?"
+# Expected: exit 2
+
+# --audit-tail bounds: 1001 rejected
+$CE compadre-keys show "$C1" --audit-tail 1001
+echo "Exit: $?"
+# Expected: exit 2
 ```
 
 ### 2.5 — `update-customer`: append-note (additive)
@@ -488,7 +498,8 @@ $CE compadre-keys list-keys --format json
 
 # --paid-until-lte today
 $CE compadre-keys list-keys --paid-until-lte today
-# Expected: empty or trial keys (NULL paid_until behavior — check)
+# Expected: includes trial keys (NULL paid_until) plus any keys with expired paid_until
+# The SQL uses: paid_until IS NULL OR paid_until <= ?  (NULL rows are explicitly included)
 ```
 
 ### 3.4 — `show <key-prefix>`
@@ -541,6 +552,12 @@ echo "Exit: $?"
 $CE compadre-keys update-key "$KEY2_PREFIX" --price 99
 echo "Exit: $?"
 # Expected: exit 2, "not applicable to complimentary"
+
+# No-op: update to same values
+$CE compadre-keys update-key "$KEY1_PREFIX" --rpm 60 --price 149
+echo "Exit: $?"
+# Expected: exit 0, "No changes: ... — already up to date"
+# Verify: no new audit row written
 ```
 
 **State verification (SQLite):**
@@ -660,6 +677,11 @@ echo "Exit: $?"
 $CE compadre-keys revoke-key "00000000" --reason "test"
 echo "Exit: $?"
 # Expected: exit 3
+
+# Rotate a revoked key — should be rejected
+$CE compadre-keys rotate-key "$KEY2_PREFIX" --yes
+echo "Exit: $?"
+# Expected: exit 3, "Key is revoked"
 ```
 
 **State verification (SQLite) after 3.6–3.9:**
@@ -788,10 +810,14 @@ $CE compadre-keys mark-paid "$KEY1_NEW_PREFIX" --months 1 --price-monthly -10
 echo "Exit: $?"
 # Expected: exit 2
 
-# mark-paid a complimentary key
-$CE compadre-keys mark-paid "$KEY2_PREFIX" --months 1
-# Note: KEY2_PREFIX was revoked. But the command would show "complimentary" for active ones
-# Expected for a complimentary: informational message, no mutation
+# Issue an active complimentary key for mark-paid testing
+$CE compadre-keys issue-key --customer "$C2" --rpm 50 --billing-mode complimentary --notes "test complimentary mark-paid"
+KEY3_PLAINTEXT="cmpd_live_..."  # copy from output
+KEY3_PREFIX="${KEY3_PLAINTEXT:10:8}"
+
+# mark-paid a complimentary key (active)
+$CE compadre-keys mark-paid "$KEY3_PREFIX" --months 1
+# Expected: exit 0, informational message, no mutation (complimentary keys ignore billing)
 
 # mark-paid a revoked key
 $CE compadre-keys mark-paid "$KEY2_PREFIX" --months 1
@@ -1254,6 +1280,15 @@ $CE compadre-keys health --format json | jq '.checks[] | select(.severity != "ok
 $CE compadre-keys health --format json
 echo "Exit: $?"
 # Expected: 7 IF any check is warn or fail; 0 otherwise
+
+# Fallback: if deployment has no warns (all checks ok), temporarily break the backup cron marker
+# to force a warn and verify exit 7
+$CE sh -c 'DB="/var/lib/compadre/registry.db"; if [ -f "${DB}.backup-cron-installed" ]; then mv "${DB}.backup-cron-installed" "${DB}.backup-cron-installed.bak"; fi'
+$CE compadre-keys health --format json
+echo "Exit: $?"
+# Expected: 7 (backup cron marker missing → warn)
+# Restore marker
+$CE sh -c 'DB="/var/lib/compadre/registry.db"; if [ -f "${DB}.backup-cron-installed.bak" ]; then mv "${DB}.backup-cron-installed.bak" "${DB}.backup-cron-installed"; fi'
 ```
 
 ### 6.5 — `cache-status`
@@ -1307,6 +1342,9 @@ SELECT action, details_json FROM audit_log WHERE action='rotate_encryption_key' 
 ```bash
 # On the VPS:
 cd ~/compadre
+# Backup the entire .env before modification
+cp .env .env.backup.$(date +%s)
+echo "Backed up .env to .env.backup.*"
 # Backup the old key
 grep KEY_REGISTRY_ENCRYPTION_KEY .env >> ~/old-encryption-key.txt
 # Update .env with the new key
@@ -1532,8 +1570,11 @@ WHERE details_json LIKE '%cpf%'
    OR details_json LIKE '%key_plaintext%'
    OR details_json LIKE '%authorization%';
 -- Expected: 0 rows (the filter should catch all at write time)
--- NOTE: detail keys like "customer_name", "key_prefix", "old_kind" are OK
+-- NOTE: detail keys like "customer_name", "key_prefix", "old_kind", "new_kind" are OK
 -- The forbidden list is the blocklisted KEYS, not substrings
+-- WARNING: the LIKE '%cpf%' query above will match old_kind: "cpf" and new_kind: "cpf" —
+-- those are legitimate. Review results manually or filter with jq against the _FORBIDDEN_DETAIL_KEYS list
+-- instead of substring matching
 ```
 
 ### 8.10 — Counter snapshot files

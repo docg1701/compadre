@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compadre nightly backup — runs INSIDE the tts-service container via
+# Compadre nightly backup — runs INSIDE the compadre-stt container via
 # ``docker compose exec``. Driven by deploy/ansible/playbooks/backup-keys.yml.
 #
 # Required env (set by the playbook's ``-e`` flags):
@@ -22,7 +22,7 @@ umask 077
 # Belt-and-braces: fail loud if the env var is absent. Bootstrap
 # already requires it at service-start, but a future helper-container
 # path that bypasses bootstrap inherits the guarantee here.
-: "${KEY_REGISTRY_ENCRYPTION_KEY:?KEY_REGISTRY_ENCRYPTION_KEY must be set inside the tts-service container}"
+: "${KEY_REGISTRY_ENCRYPTION_KEY:?KEY_REGISTRY_ENCRYPTION_KEY must be set inside the compadre-stt container}"
 : "${BACKUP_PASSPHRASE:?BACKUP_PASSPHRASE must be set via -e}"
 : "${BACKUP_RETENTION_DAYS:?BACKUP_RETENTION_DAYS must be set via -e}"
 

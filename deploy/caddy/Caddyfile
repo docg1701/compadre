@@ -97,7 +97,7 @@
 		respond `{"error":{"message":"Content-Length header is required","type":"invalid_request_error","hint":"Use Content-Length framing for POST/PUT/PATCH requests on /v1/* and /health."}}` 411
 	}
 
-	# 5. API paths → tts-service (reverse proxy with rate-limit-aware XFF).
+	# 5. API paths → compadre-stt (reverse proxy with rate-limit-aware XFF).
 	@api path /v1/* /health
 	handle @api {
 		reverse_proxy {
@@ -145,7 +145,7 @@
 		# B19 — match upstream CompadreError ``error_type`` shapes per status
 		# class so JSON consumers don't need a special "is this from Caddy
 		# or from the app?" branch. ``not_found_error`` for 404 mirrors the
-		# FastAPI ``VoiceNotFoundError`` envelope; ``invalid_request_error``
+		# FastAPI ``not_found_error`` envelope; ``invalid_request_error``
 		# for 4xx-other and ``server_error`` for 5xx mirror the generic
 		# CompadreError taxonomy. The 404 case is the operator-visible one
 		# (``/docs`` disabled in production hits this path).
