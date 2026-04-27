@@ -1,6 +1,6 @@
 # Rate Limiting
 
-Comadre enforces one rate-limit bucket per API key. The per-key cap lives in the registry (`api_key.rate_limit_rpm`) and is consulted on every authenticated request. There is no per-IP rate limit at the application layer and no global toggle — the registry row is authoritative.
+Compadre enforces one rate-limit bucket per API key. The per-key cap lives in the registry (`api_key.rate_limit_rpm`) and is consulted on every authenticated request. There is no per-IP rate limit at the application layer and no global toggle — the registry row is authoritative.
 
 ## Design rationale
 
@@ -16,7 +16,7 @@ Comadre enforces one rate-limit bucket per API key. The per-key cap lives in the
 - **Wiring**: constructed once in the lifespan (`RateLimiter.build()`) and stored on `app.state.rate_limiter`. Tests reset buckets between cases via `await app.state.rate_limiter.reset()`.
 - **Dependency ordering**: `check_rate_limit` is a FastAPI dependency declared **after** `verify_api_key`. When it runs, `request.state.auth_payload` is guaranteed populated, so the `rate_limit_rpm` and `key_id` values are read from there — no second DB lookup on the hot path.
 
-Pseudo-flow for `POST /v1/audio/speech`:
+Pseudo-flow for `POST /v1/audio/transcriptions`:
 
 ```text
 verify_api_key(request)              → sets request.state.auth_payload
@@ -40,13 +40,13 @@ Consequences of this choice:
 
 ## Multi-replica behaviour
 
-`MemoryStorage` is per-process. Today Comadre ships `replicas: 1` in `compose.yaml`, so the in-memory window is the global window. If `replicas` is raised to N:
+`MemoryStorage` is per-process. Today Compadre ships `replicas: 1` in `compose.yaml`, so the in-memory window is the global window. If `replicas` is raised to N:
 
 - Each replica keeps its own moving window for each key.
 - A key with `rate_limit_rpm=60` can emit up to `60 × N` requests per minute cluster-wide (in the worst-case distribution where Caddy's `least_conn` policy spreads traffic perfectly).
 - The counter on each replica resets when that replica restarts.
 
-This trade-off is honest and visible: the alternative (shared storage) trades a simple deploy for an extra dependency (Redis) or a write-contention-prone shared SQLite table. For Comadre's current throughput and replica count, the in-memory path is the right choice. Moving to shared storage is a candidate future story if and when per-replica multiplication becomes a real operator problem.
+This trade-off is honest and visible: the alternative (shared storage) trades a simple deploy for an extra dependency (Redis) or a write-contention-prone shared SQLite table. For Compadre's current throughput and replica count, the in-memory path is the right choice. Moving to shared storage is a candidate future story if and when per-replica multiplication becomes a real operator problem.
 
 If you scale up and need closer-to-strict per-key caps, divide intended RPM by replica count when setting `compadre-keys update-key --rpm <n>`, or accept the multiplied budget as opportunistic elasticity.
 
@@ -64,7 +64,7 @@ On a 429 the same three headers are emitted alongside `Retry-After`, so clients 
 
 ## 429 envelope
 
-When `check_rate_limit` denies the request, Comadre returns:
+When `check_rate_limit` denies the request, Compadre returns:
 
 ```text
 HTTP/1.1 429 Too Many Requests
@@ -115,11 +115,11 @@ Buckets live only in process memory. On container restart — whether via `docke
 - The runtime counter is disposable; losing it on restart costs at most one minute of oversized burst for active keys.
 - Restart is the simplest possible cache invalidation for `AuthCache` + rate-limit combined (when you need immediate effect for a `revoke-key`, a restart also nukes any over-limit counters).
 
-At Comadre's throughput this trade is fine. Customers rarely notice window resets, and operators already treat restart as a known-safe operation.
+At Compadre's throughput this trade is fine. Customers rarely notice window resets, and operators already treat restart as a known-safe operation.
 
 ## Counters
 
-Comadre exposes per-key usage counters that reset at each replica restart. Reads and updates are pure in-memory dict ops (no I/O on the request path) — the cost budget is the same ≤2 ms p99 the rate-limit dependency aims at.
+Compadre exposes per-key usage counters that reset at each replica restart. Reads and updates are pure in-memory dict ops (no I/O on the request path) — the cost budget is the same ≤2 ms p99 the rate-limit dependency aims at.
 
 | Field | Meaning |
 | --- | --- |

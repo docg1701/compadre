@@ -1,6 +1,6 @@
-# Proxmox VM Setup for Comadre
+# Proxmox VM Setup for Compadre
 
-Step-by-step guide for creating a Debian 13 VM on Proxmox VE to run Comadre.
+Step-by-step guide for creating a Debian 13 VM on Proxmox VE to run Compadre.
 
 **Research date:** 2026-03-25
 **Proxmox VE version:** 9.1 (released 2025-11-19, based on Debian 13 "Trixie")
@@ -36,7 +36,7 @@ Click **Create VM** in the top-right. Check **Advanced** at the bottom of the wi
 
 | Field | Value |
 | --- | --- |
-| Name | `comadre-tts` |
+| Name | `compadre-stt` |
 | Add to HA | No (only useful for multi-node clusters with automatic failover) |
 
 ### OS
@@ -54,11 +54,11 @@ Click **Create VM** in the top-right. Check **Advanced** at the bottom of the wi
 | Machine | q35 | Modern chipset, better PCIe support |
 | BIOS | OVMF (UEFI) | Recommended for Debian 13 |
 | EFI Storage | local-lvm | Required with OVMF |
-| Add TPM | No | Unnecessary for a TTS server VM |
+| Add TPM | No | Unnecessary for an STT server VM |
 | Pre-Enroll keys | No | Secure Boot not needed for internal workloads |
 | SCSI Controller | VirtIO SCSI single | Best disk performance with IO threads |
 | QEMU Agent | Enabled | Shows IP in Proxmox, graceful shutdown, backup freeze |
-| Graphic card | Default (VGA) | No GPU needed, Comadre runs 100% on CPU |
+| Graphic card | Default (VGA) | No GPU needed, Compadre runs 100% on CPU |
 
 ### Disks
 
@@ -78,7 +78,7 @@ Click **Create VM** in the top-right. Check **Advanced** at the bottom of the wi
 | Field | Value | Why |
 | --- | --- | --- |
 | Sockets | 1 | |
-| Cores | 4 | Qwen3 sweet spot (diminishing returns beyond 4) |
+| Cores | 4 | faster-whisper sweet spot on CPU (diminishing returns beyond 4-6) |
 | Type | host | Exposes AVX/AVX2/FMA to guest. 3-10% faster than kvm64 for CPU-bound inference. Only use kvm64 if you need live migration across different CPUs. |
 
 ### Memory
@@ -86,7 +86,7 @@ Click **Create VM** in the top-right. Check **Advanced** at the bottom of the wi
 | Field | Value | Why |
 | --- | --- | --- |
 | Memory (MiB) | 8192 | |
-| Ballooning | Disabled | Predictable latency for TTS inference |
+| Ballooning | Disabled | Predictable latency for STT inference |
 | KSM (Kernel Same-page Merging) | Disabled | Adds CPU overhead and unpredictable latency, harmful for inference |
 
 ### Network
@@ -207,7 +207,7 @@ ssh YOUR_USER@HOSTNAME.local
 > **Note:** Docker installation, Docker log limits, and performance tuning are
 > handled by the Ansible bootstrap playbook. Do not install Docker manually.
 
-## 5. Deploy Comadre
+## 5. Deploy Compadre
 
 The VM is ready. See [local-testing-guide.md](local-testing-guide.md) for steps to build and run the service, or use Ansible from your workstation:
 
@@ -226,13 +226,13 @@ ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml
 
 - **Nested virtualization is NOT needed.** Docker uses namespaces/cgroups, not hardware virtualization.
 - **VM is the right choice** (not LXC). Docker in LXC requires privileged containers and kernel-sharing hacks. Proxmox documentation recommends VMs for Docker workloads.
-- **CPU type `host`** passes through all CPU instruction sets including AVX/AVX2 and FMA, which benefits GGML-based Qwen3 inference.
-- **ARM is not supported.** The `qwen3-tts-cli` binary is compiled for x86-64. ARM hosts (Oracle free tier, Raspberry Pi) require recompilation.
+- **CPU type `host`** passes through all CPU instruction sets including AVX/AVX2 and FMA, which benefits CTranslate2-based faster-whisper inference.
+- **ARM is supported.** faster-whisper runs on both x86-64 and ARM64 (aarch64). Oracle Cloud Ampere A1 (ARM) is a valid deployment target.
 
 ## VM config summary
 
 ```text
-Name:    comadre-tts
+Name:    compadre-stt
 HA:      No
 OS:      Debian 13.4 "Trixie" (netinst)
 Machine: q35, OVMF (UEFI), no TPM, no Secure Boot

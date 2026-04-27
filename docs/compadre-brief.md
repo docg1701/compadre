@@ -1,4 +1,10 @@
+> ⚠️ **Historical Reference** — This is the original MVP technical brief (2026-03). It informed the initial
+> implementation. See [README.md](../README.md) and [api-reference.md](api-reference.md) for the current state
+> of the project. Many instructions here (deleting TTS code, renaming packages) were already executed.
+
 # Technical Brief — Compadre (Speech-to-Text SaaS)
+
+**Last updated:** 2026-03 (historical)
 
 **For: implementing agent**
 **Author: project owner (via Claude consultation)**

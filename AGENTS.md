@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+**Last updated:** 2026-04-26
+
 ## Project Overview
 
 Compadre is a self-hosted STT API using faster-whisper (large-v3-turbo, int8 quantization, CPU-only). Serves n8n chatbot workflows for WhatsApp/Telegram/Messenger transcription in Brazilian Portuguese.
@@ -40,7 +42,7 @@ uv run pre-commit run --all-files  # All quality checks
   - `srt` — SubRip subtitle format
   - `vtt` — WebVTT subtitle format
   - SRT and VTT formatters reuse the helper from `src/compadre/srt_utils.py` (extracted from a battle-tested implementation).
-- **Module boundaries enforced**: no HTTP concerns in `service.py`, no business logic in `api.py`, no raw `os.environ` (use pydantic-settings), no raw `HTTPException` (use `CompadreError` hierarchy).
+- **Module boundaries enforced**: no HTTP concerns in `stt.py`, no business logic in `api.py`, no raw `os.environ` (use pydantic-settings), no raw `HTTPException` (use `CompadreError` hierarchy).
 - **HTTPS via Caddy**: Caddy reverse proxy terminates TLS (auto Let's Encrypt or self-signed). Caddy is the sole external access point (ports 80/443) — the STT service is not exposed on the host network. Configure domain via `COMPADRE_DOMAIN` env var.
 - **Rate limiting**: per-key only via the `limits` library (`MovingWindowRateLimiter` over in-memory storage). `POST /v1/audio/transcriptions` enforces one bucket per API key, keyed on `key:<key_id>` and fed by the registry row's `rate_limit_rpm` (retrieved as `AuthPayload.rate_limit_rpm` during auth). The bucket identity is the DB `key_id`, so it is stable across `compadre-keys rotate-key` (new plaintext, same bucket) and independent for two keys issued to the same customer. `/health` is not rate-limited at the app layer. `get_client_ip()` is retained for the access log (reads `X-Forwarded-For` from Caddy, falls back to `request.client.host`). Rate-limit storage is in-memory per replica — multiplying replicas multiplies effective RPM; documented in `docs/rate-limiting.md`. Per-key counters (`requests_total`, `auth_success`, `rate_limit_429`, `peak_rpm`, `avg_rpm_last_60s`) live in `src/compadre/counters.py`, reset on restart, and are snapshotted every 15 s to `{KEY_REGISTRY_DB_PATH}.counters.{hostname}.json` (one file per replica). `compadre-keys cache-status` and `compadre-keys show <key-prefix> --audit-tail N` glob every matching file and aggregate across replicas — sums for counters, max for `peak_rpm`/`last_activity_at`, min for `snapshot_age_seconds`/`process_uptime_seconds` — so multi-replica deployments see cluster-wide traffic, not last-writer-wins.
 - **Landing page**: served by Caddy via `file_server` at root path (`/`). API paths (`/v1/*`, `/health`, `/docs`) routed via `@api` handle block to compadre-stt. Static assets in `deploy/landing/`, bind-mounted as `/srv/www:ro`. Controlled by `landing_enabled` ansible variable (default true). UI is a file upload / drag-and-drop area with API key field, "Transcrever" button, and result text area with copy-to-clipboard. Bring-your-own API key model (same as Comadre's landing page).
@@ -58,7 +60,7 @@ uv run pre-commit run --all-files  # All quality checks
 
 ## Key File Locations
 
-- `src/compadre/` — application code (config, logging, schemas, exceptions, preprocessing, service, rate_limit, health, download, api, main)
+- `src/compadre/` — application code (config, logging, schemas, exceptions, preprocessing, stt, rate_limit, counters, health, download, api, main)
 - `tests/` — pytest suite (mocked, no real models)
 - `docs/` — technical and operational docs (API reference, deployment guide, configuration reference, monetization, rate limiting, troubleshooting, API architecture)
 - `src/compadre/keys/cli/` — `compadre-keys` CLI (Typer app). Commands: `create-customer`, `list-customers`, `update-customer`, `delete-customer`, `export-customer`, `correct-tax-id`, `issue-key`, `list-keys`, `update-key`, `rotate-key`, `revoke-key`, `rotate-encryption-key`, `mark-paid`, `suspend`, `reactivate`, `at-risk`, `revenue`, `show`, `cache-status`, `suspend-sweep`, `health` (21 verbs total). This is the sole key-management surface.

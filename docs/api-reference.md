@@ -1,10 +1,12 @@
 # API Reference
 
-Comadre exposes an OpenAI-compatible TTS endpoint and a health endpoint.
+Compadre exposes an OpenAI-compatible STT endpoint and a health endpoint.
+
+**Last updated:** 2026-04-26
 
 ## Authentication
 
-All requests to `/v1/audio/speech` require a Bearer token in the `Authorization` header. The token must be an active, non-expired API key issued via the `compadre-keys` CLI and stored in the encrypted registry.
+All requests to `/v1/audio/transcriptions` require a Bearer token in the `Authorization` header. The token must be an active, non-expired API key issued via the `compadre-keys` CLI and stored in the encrypted registry.
 
 ```text
 Authorization: Bearer cmpd_live_<plaintext-issued-once>
@@ -12,11 +14,11 @@ Authorization: Bearer cmpd_live_<plaintext-issued-once>
 
 Keys are issued with `compadre-keys issue-key`. The plaintext is displayed once at issuance and never again — the registry stores only a SHA-256 hash and an 8-character display prefix. See [monetization.md](monetization.md) for the full lifecycle.
 
-The `/health` endpoint does not require authentication. When called without a valid bearer, it returns a minimal payload (`status` and `voices`). Passing a valid bearer unlocks the full payload (engines, queue depth, uptime, memory, version).
+The `/health` endpoint does not require authentication. When called without a valid bearer, it returns a minimal payload (`status` and `models`). Passing a valid bearer unlocks the full payload (engines, queue depth, uptime, memory, version).
 
-## POST /v1/audio/speech
+## POST /v1/audio/transcriptions
 
-Generate speech audio from text input.
+Transcribe audio to text.
 
 ### Request
 
@@ -25,65 +27,115 @@ Generate speech audio from text input.
 | Header | Required | Value |
 | --- | --- | --- |
 | `Authorization` | Yes | `Bearer cmpd_live_<plaintext>` |
-| `Content-Type` | Yes | `application/json` |
+| `Content-Type` | Yes | `multipart/form-data` |
 
-**Body:**
+**Form fields:**
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `input` | string | Yes | -- | Text to synthesize (1-500 chars for Kokoro, 1-300 chars for Qwen3) |
-| `voice` | string | No | per `DEFAULT_VOICE` env var (default: `kokoro/pm_santa`) | Voice name in `engine/name` format (see voice routing table below and [voice-management.md](voice-management.md)) |
-| `response_format` | string | No | `ogg` | Output format: `ogg` or `wav` |
-| `speed` | float | No | `1.0` | Speed multiplier: 0.25 to 4.0. Applied by Kokoro (adjusts phoneme duration during synthesis). Accepted but ignored by Qwen3 (the C++ binary has no speed flag; the whatsapp-subtle pipeline applies a fixed 1.15x atempo independently). |
-| `raw` | boolean | No | `false` | Skip audio post-processing (vibrato, EQ, compression, echo, noise mixing). Returns the raw TTS engine output encoded to the requested format. Useful for testing or custom downstream processing. |
+| `file` | binary | Yes | — | Audio file (OPUS in OGG, MP3, M4A, WAV, WebM) |
+| `model` | string | No | `whisper-large-v3-turbo` | Accepted for OpenAI SDK compatibility; ignored |
+| `language` | string | No | `pt` | ISO 639-1 language code; omit for auto-detect |
+| `response_format` | string | No | `text` | `text`, `json`, `verbose_json`, `srt`, `vtt` |
+| `temperature` | float | No | `0.0` | Accepted for compatibility; ignored |
 
-### Voice Routing
+### Processing Pipeline
 
-The `voice` parameter determines which TTS engine processes the request:
+```
+auth → rate-limit → acquire lock → ffmpeg decode (16 kHz mono PCM s16le WAV)
+  → faster-whisper transcribe → format output → return
+```
 
-| Voice | Engine | Character Limit | Typical Latency (4 vCPU) |
-| --- | --- | --- | --- |
-| `kokoro/pm_santa` (M) | Kokoro fp32 | 500 | 5-16s |
-| `kokoro/pf_dora` (F) | Kokoro fp32 | 500 | 5-16s |
-| `kokoro/pm_alex` (M) | Kokoro fp32 | 500 | 5-16s |
-| `kokoro/<name>` | Kokoro fp32 | 500 | 5-16s |
-| `qwen/<name>` | Qwen3-TTS C++ Q8_0 | 300 | 12-37s |
+**Engine parameters (non-configurable):**
 
-Voices are discovered from the filesystem. See [voice-management.md](voice-management.md) for how to add or list voices.
+| Parameter | Value | Rationale |
+|---|---|---|
+| `beam_size` | `5` | Quality/speed trade-off |
+| `word_timestamps` | `True` | Enables `verbose_json`, `srt`, `vtt` formats |
+| `condition_on_previous_text` | `False` | Prevents hallucination cascades on long audio |
+| `language` | `pt` (default) | Brazilian Portuguese; auto-detect when omitted |
+| `cpu_threads` | `4` (env-configurable via `COMPADRE_WHISPER_CPU_THREADS`) | Matches 4 vCPU reference hardware |
 
-### Engine-Specific Preprocessing
+**Audio limits:**
 
-Each engine applies different text preprocessing before synthesis:
+| Limit | Value | Enforced by |
+|---|---|---|
+| Max upload size | 25 MB | FastAPI middleware + Caddy bounded-payload policy |
+| Max audio duration | 10 minutes | `ffprobe` validation before engine invocation |
 
-**Kokoro:**
+Exceeding either limit returns HTTP 400.
 
-- `normalize_text()` -- normalizes Unicode, expands abbreviations
-- `chunk_text()` -- splits long text into chunks for sequential synthesis
-- espeak-ng pt_extra dictionary -- handles sigla pronunciation (CPF, CNPJ, FGTS, etc.) via 67 custom dictionary entries
+### Success Responses
 
-**Qwen3:**
+#### `response_format=text` (default)
 
-- `expand_siglas()` -- converts siglas to spaced letter format (e.g., `CNPJ` becomes `C N P J`) for correct pronunciation
+**Status:** 200 OK  
+**Content-Type:** `text/plain`
 
-### Post-Processing Pipelines
+```text
+Bom dia, como posso ajudar?
+```
 
-Each engine has a dedicated audio post-processing pipeline applied before output:
+#### `response_format=json`
 
-**radio_warm (Kokoro):** EQ shaping (bass boost, mid-scoop, presence), dynamic compression, saturation, loudnorm, room/hiss noise layer.
+**Status:** 200 OK  
+**Content-Type:** `application/json`
 
-**whatsapp-subtle (Qwen3):** EQ shaping, dynamic compression, atempo 1.15x speed adjustment, echo, room/hiss noise layer.
+```json
+{
+  "text": "Bom dia, como posso ajudar?"
+}
+```
 
-Both pipelines produce the final audio optimized for messaging platform voice notes.
+#### `response_format=verbose_json`
 
-### Success Response
+**Status:** 200 OK  
+**Content-Type:** `application/json`
 
-**Status:** 200 OK
+```json
+{
+  "text": "Bom dia, como posso ajudar?",
+  "language": "pt",
+  "duration": 3.24,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 3.24,
+      "text": "Bom dia, como posso ajudar?",
+      "words": [
+        {"word": "Bom", "start": 0.0, "end": 0.42, "probability": 0.98},
+        {"word": "dia", "start": 0.42, "end": 0.78, "probability": 0.97},
+        {"word": "como", "start": 1.02, "end": 1.32, "probability": 0.96},
+        {"word": "posso", "start": 1.32, "end": 1.68, "probability": 0.95},
+        {"word": "ajudar", "start": 1.68, "end": 2.1, "probability": 0.97}
+      ]
+    }
+  ]
+}
+```
 
-**Headers:**
+#### `response_format=srt`
 
-- `Content-Type: audio/ogg` (for OGG Opus) or `Content-Type: audio/wav` (for WAV)
+**Status:** 200 OK  
+**Content-Type:** `text/plain`
 
-**Body:** Binary audio data.
+```text
+1
+00:00:00,000 --> 00:00:03,240
+Bom dia, como posso ajudar?
+```
+
+#### `response_format=vtt`
+
+**Status:** 200 OK  
+**Content-Type:** `text/plain`
+
+```text
+WEBVTT
+
+00:00:00.000 --> 00:00:03.240
+Bom dia, como posso ajudar?
+```
 
 ### Error Responses
 
@@ -101,12 +153,50 @@ All errors return JSON with this structure:
 
 **400 -- Invalid Request:**
 
+Missing file:
+
 ```json
 {
   "error": {
-    "message": "Input exceeds 300 character limit for Qwen3 engine (voice 'qwen/galvani')",
+    "message": "Missing audio file",
     "type": "invalid_request_error",
-    "hint": "Reduce text length or switch to a Kokoro voice (kokoro/pm_santa, kokoro/pf_dora, kokoro/pm_alex) which supports up to 500 characters."
+    "hint": "Upload an audio file using multipart/form-data with field name 'file'."
+  }
+}
+```
+
+Unsupported format:
+
+```json
+{
+  "error": {
+    "message": "Unsupported audio format: audio/flac",
+    "type": "invalid_request_error",
+    "hint": "Supported formats: OPUS (OGG), MP3, M4A, WAV, WebM."
+  }
+}
+```
+
+File too large:
+
+```json
+{
+  "error": {
+    "message": "File size exceeds 25 MB limit",
+    "type": "invalid_request_error",
+    "hint": "Compress the audio or split into shorter segments."
+  }
+}
+```
+
+Audio too long:
+
+```json
+{
+  "error": {
+    "message": "Audio duration exceeds 600 seconds limit",
+    "type": "invalid_request_error",
+    "hint": "Split the audio into segments under 10 minutes."
   }
 }
 ```
@@ -132,21 +222,21 @@ Unknown API key (not present in the registry, or a token that never existed):
   "error": {
     "message": "Invalid API key",
     "type": "authentication_error",
-    "hint": "The key was not found in the registry. Contact your Comadre operator for a fresh key."
+    "hint": "The key was not found in the registry. Contact your Compadre operator for a fresh key."
   }
 }
 ```
 
 A 401 is also returned when a key is suspended, revoked, or past `paid_until`. The `hint` field echoes the operator-contact string configured via `OPERATOR_CONTACT_HINT`.
 
-**404 -- Voice Not Found:**
+**404 -- Not Found:**
 
 ```json
 {
   "error": {
-    "message": "Voice 'unknown' not found",
+    "message": "Not found",
     "type": "not_found_error",
-    "hint": "Available voices: ['kokoro/pf_dora', 'kokoro/pm_alex', 'kokoro/pm_santa', 'qwen/female', 'qwen/galvani']. Use engine/name format. See /health for the current list."
+    "hint": "Check the URL. Valid endpoints: POST /v1/audio/transcriptions, GET /health."
   }
 }
 ```
@@ -158,7 +248,7 @@ A 401 is also returned when a key is suspended, revoked, or past `paid_until`. T
   "error": {
     "message": "Method not allowed",
     "type": "method_not_allowed_error",
-    "hint": "Use POST for /v1/audio/speech and GET for /health."
+    "hint": "Use POST for /v1/audio/transcriptions and GET for /health."
   }
 }
 ```
@@ -175,7 +265,7 @@ A 401 is also returned when a key is suspended, revoked, or past `paid_until`. T
 }
 ```
 
-The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers. `Retry-After` (and the matching hint) are derived from `X-RateLimit-Reset - now`, so clients can back off accurately. The same three `X-RateLimit-*` headers are also emitted on allowed responses. Rate-limiting is per API key, not per IP: each key's `rate_limit_rpm` (set at `compadre-keys issue-key --rpm <n>` and adjustable via `update-key --rpm <n>`) determines the budget. The bucket is keyed on the registry's `key_id`, so it survives `compadre-keys rotate-key` and is independent across two keys issued to the same customer. The TTS engine is never invoked when a request hits the rate limit. See [rate-limiting.md](rate-limiting.md) for the algorithm and multi-replica caveat. `/health` has no application-layer rate limit.
+The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers. `Retry-After` (and the matching hint) are derived from `X-RateLimit-Reset - now`, so clients can back off accurately. The same three `X-RateLimit-*` headers are also emitted on allowed responses. Rate-limiting is per API key, not per IP: each key's `rate_limit_rpm` (set at `compadre-keys issue-key --rpm <n>` and adjustable via `update-key --rpm <n>`) determines the budget. The bucket is keyed on the registry's `key_id`, so it survives `compadre-keys rotate-key` and is independent across two keys issued to the same customer. The STT engine is never invoked when a request hits the rate limit. See [rate-limiting.md](rate-limiting.md) for the algorithm and multi-replica caveat. `/health` has no application-layer rate limit.
 
 **500 -- Server Error:**
 
@@ -184,7 +274,7 @@ The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-L
   "error": {
     "message": "An internal server error occurred",
     "type": "server_error",
-    "hint": "Check server logs for the full traceback. The TTS model may need restarting."
+    "hint": "Check server logs for the full traceback. The STT model may need restarting."
   }
 }
 ```
@@ -212,31 +302,35 @@ Returns service health status. No authentication required.
 ```json
 {
   "status": "healthy",
-  "voices": ["kokoro/pf_dora", "kokoro/pm_alex", "kokoro/pm_santa", "qwen/female", "qwen/galvani"],
+  "models": ["large-v3-turbo"],
   "engines": {
-    "kokoro": {"loaded": true, "voices": ["kokoro/pf_dora", "kokoro/pm_alex", "kokoro/pm_santa"]},
-    "qwen3": {"loaded": true, "voices": ["qwen/female", "qwen/galvani"]}
+    "whisper": {
+      "loaded": true,
+      "model": "large-v3-turbo",
+      "compute_type": "int8",
+      "cpu_threads": 4
+    }
   },
   "queue_depth": 0,
   "uptime_seconds": 3600,
-  "memory_mb": 4200,
-  "version": "2.0.0"
+  "memory_mb": 2100,
+  "version": "1.0.0"
 }
 ```
 
 ### Warming Up Response (503)
 
-Returned while models are still loading after startup:
+Returned while the model is still loading after startup:
 
 ```json
 {
   "status": "warming_up",
-  "voices": [],
+  "models": [],
   "engines": {},
   "queue_depth": 0,
   "uptime_seconds": 15,
   "memory_mb": 800,
-  "version": "2.0.0"
+  "version": "1.0.0"
 }
 ```
 
@@ -244,51 +338,53 @@ Returned while models are still loading after startup:
 
 | Status | HTTP Code | Meaning |
 | --- | --- | --- |
-| `healthy` | 200 | All engines loaded, service ready |
-| `warming_up` | 503 | Models still downloading or loading |
-
-## Voice Cloning
-
-Qwen3-TTS voices use reference WAV files for voice cloning. Voices are discovered from the `/voices/qwen/` directory -- no environment variable configuration needed. For detailed setup instructions, see [voice-management.md](voice-management.md).
-
-**How it works:**
-
-1. Place a reference WAV (3-10s of clear speech) in `/voices/qwen/`
-2. The voice is immediately available as `qwen/<filename-without-extension>`
-3. No restart needed -- voices are discovered at request time
-
-**Seed reproducibility:** Qwen3-TTS uses a fixed seed for consistent voice characteristics. The same text + reference WAV + seed produces similar results across runs.
-
-**No Qwen3 voices:** If no WAV files are present in `/voices/qwen/`, no Qwen3 voices will appear in the `/health` endpoint. Requests for missing voices return a 404 error.
+| `healthy` | 200 | Model loaded, service ready |
+| `warming_up` | 503 | Model still downloading or loading |
 
 ## Examples
 
-**Kokoro request (fast, built-in voice):**
+**Transcription request (text format):**
 
 ```bash
-curl -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Bom dia, como posso ajudar?", "voice":"kokoro/pm_santa"}' \
-  --output test.ogg
+  -F "file=@audio.opus" \
+  -F "response_format=text"
 ```
 
-**Qwen3 request (cloned voice):**
+**Transcription request (verbose JSON with timestamps):**
 
 ```bash
-curl -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Seu CPF foi validado com sucesso.", "voice":"qwen/galvani"}' \
-  --output test_clone.ogg
+  -F "file=@audio.opus" \
+  -F "response_format=verbose_json"
+```
+
+**Transcription request (SRT subtitles):**
+
+```bash
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
+  -F "file=@audio.opus" \
+  -F "response_format=srt"
+```
+
+**Language override (auto-detect omitted, force Spanish):**
+
+```bash
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
+  -F "file=@audio.opus" \
+  -F "language=es" \
+  -F "response_format=json"
 ```
 
 **Missing authentication (error example):**
 
 ```bash
-curl -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Teste sem autenticacao."}'
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
+  -F "file=@audio.opus"
 ```
 
 Response (401):
@@ -306,5 +402,5 @@ Response (401):
 **Health check:**
 
 ```bash
-curl https://YOUR_VPS_DOMAIN/health
+curl -k -s https://YOUR_VPS_DOMAIN/health
 ```

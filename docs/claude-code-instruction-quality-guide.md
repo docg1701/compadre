@@ -1,5 +1,7 @@
 # Claude Code Instruction Quality Guide
 
+**Last updated:** 2026-04-26
+
 Reference document for auditing and improving all Claude Code instruction files (CLAUDE.md, subagent definitions, checkpoint prompts). Synthesized from official Anthropic documentation, Claude Code docs, and prompt engineering best practices for Claude 4.x models.
 
 ---

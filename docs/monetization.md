@@ -1,6 +1,6 @@
 # Monetization
 
-Comadre monetization is policy-driven, per API key, with the encrypted SQLite key registry as the single source of truth. There is no global on/off toggle: every request to `POST /v1/audio/speech` is authenticated against the registry and rate-limited by the specific key's `rate_limit_rpm`. The `compadre-keys` CLI is the sole operator surface for creating customers, issuing keys, adjusting limits, and retiring keys.
+Compadre monetization is policy-driven, per API key, with the encrypted SQLite key registry as the single source of truth. There is no global on/off toggle: every request to `POST /v1/audio/transcriptions` is authenticated against the registry and rate-limited by the specific key's `rate_limit_rpm`. The `compadre-keys` CLI is the sole operator surface for creating customers, issuing keys, adjusting limits, and retiring keys.
 
 ## What monetization means
 
@@ -31,7 +31,7 @@ The plaintext (a `cmpd_live_<random>` token) is rendered once on stdout and neve
 
 ## Per-key rate limiting
 
-`POST /v1/audio/speech` runs two dependencies in order: `verify_api_key` (populates `request.state.auth_payload`), then `check_rate_limit` (enforces the per-key bucket).
+`POST /v1/audio/transcriptions` runs two dependencies in order: `verify_api_key` (populates `request.state.auth_payload`), then `check_rate_limit` (enforces the per-key bucket).
 
 - **Algorithm**: sliding-window over 1 minute, `limits.aio.strategies.MovingWindowRateLimiter` with in-memory storage.
 - **Bucket identity**: `key:<key_id>` — the registry's ULID-based `key_id`, not the plaintext and not the customer_id. Two keys for the same customer each get their own bucket.
@@ -61,7 +61,7 @@ Content-Type: application/json
 }
 ```
 
-`Retry-After` and the `Try again in N seconds` hint are derived from `X-RateLimit-Reset - now` — they always match. `X-RateLimit-*` headers are also emitted on allowed responses so clients can observe their remaining budget. The TTS engine is never invoked on a 429 — the rate-limit dependency runs before the route handler body.
+`Retry-After` and the `Try again in N seconds` hint are derived from `X-RateLimit-Reset - now` — they always match. `X-RateLimit-*` headers are also emitted on allowed responses so clients can observe their remaining budget. The STT engine is never invoked on a 429 — the rate-limit dependency runs before the route handler body.
 
 ## Lifecycle operations
 
@@ -88,7 +88,7 @@ Content-Type: application/json
 
 ## LGPD Operator Obligations
 
-Comadre 2.0.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Comadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Comadre primitive that discharges each one, and provides the runbook you fire on a breach.
+Compadre 1.0.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Comadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Comadre primitive that discharges each one, and provides the runbook you fire on a breach.
 
 The legal basis for processing is *"execução de contrato"* (Art. 7 V) — you collect the data exclusively to execute the API-access subscription. No secondary use, no data sharing, no profiling. The retention period is bounded by the commercial relationship plus the Brazilian commercial-law minimum (typically 5 years for fiscal records). Deletion is operator-driven via `compadre-keys delete-customer --hard`, never automatic.
 
@@ -120,7 +120,7 @@ Comadre's registry stores exactly four customer-level columns. Their purpose, at
 
 **Encryption-key custody.** You hold `KEY_REGISTRY_ENCRYPTION_KEY` in two places: `~/compadre/.env` on the deploy host (mode `0600`, parent dir `0700`; enforced by `keys/db.py::get_connection` on every connection open and re-asserted by `bootstrap.yml`) and your password manager. **If both copies are lost, every `tax_id_encrypted` ciphertext becomes unreadable.** This is a deliberate fail-closed posture — adding a key-recovery surface would defeat the at-rest-encryption premise. Compare this with `BACKUP_PASSPHRASE`, which is accepted empty at service boot by design (consumed only by the backup/restore playbooks, never by the runtime; see `CLAUDE.md` §Non-Obvious Gotchas — `BACKUP_PASSPHRASE` row): the two secrets sit in different threat models and adopt different boot postures.
 
-**Audit-log retention.** The audit log retains event metadata (who, when, what action, structural counts) but **never** personal data. The invariant is enforced by `src/comadre/keys/audit.py::_FORBIDDEN_DETAIL_KEYS`, which raises `ValueError` if any caller attempts to write a PII-class key (today: `cpf`, `cnpj`, `tax_id`, `name`, `email`, `key_plaintext`, `authorization` — **canonical list at `src/comadre/keys/audit.py`**, the prose enumeration here is illustrative and may drift; treat the source as authoritative) into a `details_json` payload. After a `delete-customer --hard` the customer's PII is gone, but the audit row stays — this satisfies FR38 and your obligation to retain operator-action traceability for ANPD inquiries.
+**Audit-log retention.** The audit log retains event metadata (who, when, what action, structural counts) but **never** personal data. The invariant is enforced by `src/compadre/keys/audit.py::_FORBIDDEN_DETAIL_KEYS`, which raises `ValueError` if any caller attempts to write a PII-class key (today: `cpf`, `cnpj`, `tax_id`, `name`, `email`, `key_plaintext`, `authorization` — **canonical list at `src/compadre/keys/audit.py`**, the prose enumeration here is illustrative and may drift; treat the source as authoritative) into a `details_json` payload. After a `delete-customer --hard` the customer's PII is gone, but the audit row stays — this satisfies FR38 and your obligation to retain operator-action traceability for ANPD inquiries.
 
 ### Handling a data-subject access request (Art. 18 II and V)
 
@@ -274,7 +274,7 @@ Triggered when you have evidence — or strong suspicion — that the contents o
    done
    ```
 
-   These two files are the evidentiary baseline for the ANPD notification body and the customer-template fill-in. **`--audit-tail` is capped at 1000 rows by the CLI** (`src/comadre/keys/cli/commands/customers.py`); for high-volume customers exceeding that bound, run the same loop a second time after rotating evidence offsets, or query `audit_log` directly via `sqlite3` against the live DB copy captured in the §Evidence-preservation checklist.
+   These two files are the evidentiary baseline for the ANPD notification body and the customer-template fill-in. **`--audit-tail` is capped at 1000 rows by the CLI** (`src/compadre/keys/cli/commands/customers.py`); for high-volume customers exceeding that bound, run the same loop a second time after rotating evidence offsets, or query `audit_log` directly via `sqlite3` against the live DB copy captured in the §Evidence-preservation checklist.
 4. **Rotate the encryption key.** Run Lane B steps 1–4 inline (the runbook is self-contained; do not jump out of this lane).
 5. **Rotate every affected customer's API key.** For each customer in the affected list:
 
@@ -492,7 +492,7 @@ Política de Privacidade — Tratamento de Dados Pessoais (LGPD)
 
 Para a prestação do serviço de assinatura de API, {{operator-legal-name}} (CNPJ {{operator-cnpj}}),
 doravante "controlador", coleta e trata os seguintes dados pessoais do titular: nome, e-mail e
-CPF/CNPJ. O tratamento ocorre por meio do software Comadre (https://github.com/galvani4987/comadre),
+CPF/CNPJ. O tratamento ocorre por meio do software Comadre (https://github.com/docg1701/compadre),
 ferramenta auto-hospedada na infraestrutura do controlador. O CPF/CNPJ é armazenado criptografado em
 repouso por meio de algoritmo simétrico autenticado padrão de mercado (Fernet — AES + HMAC-SHA256).
 Nenhum outro dado pessoal é coletado: não há endereço,
@@ -520,7 +520,7 @@ Privacy Policy — Personal Data Processing (LGPD)
 To deliver the API subscription service, {{operator-legal-name}} (CNPJ {{operator-cnpj}}),
 hereinafter "the controller", collects and processes the following personal data of the subject:
 name, email, and Brazilian tax ID (CPF/CNPJ). Processing happens through the Comadre software
-(https://github.com/galvani4987/comadre), a self-hosted tool running on the controller's
+(https://github.com/docg1701/compadre), a self-hosted tool running on the controller's
 infrastructure. The tax ID is stored encrypted at rest using an industry-standard authenticated
 symmetric algorithm (Fernet — AES + HMAC-SHA256). No other personal data is collected — no
 address, phone, birthdate, IP, device fingerprint, or biometrics.
@@ -553,10 +553,10 @@ www.gov.br/anpd.
 ### References
 
 - Deploy-time operational reference — `docs/deployment-guide.md:480-528`
-- `_FORBIDDEN_DETAIL_KEYS` PII-hygiene guard — `src/comadre/keys/audit.py`
-- `encrypt_tax_id` / `decrypt_tax_id` single-site invariant — `src/comadre/keys/crypto.py`
-- `delete_customer_hard` single-transaction contract — `src/comadre/keys/db.py`
-- `rotate-encryption-key` atomic re-encryption — `src/comadre/keys/cli/commands/system.py`
+- `_FORBIDDEN_DETAIL_KEYS` PII-hygiene guard — `src/compadre/keys/audit.py`
+- `encrypt_tax_id` / `decrypt_tax_id` single-site invariant — `src/compadre/keys/crypto.py`
+- `delete_customer_hard` single-transaction contract — `src/compadre/keys/db.py`
+- `rotate-encryption-key` atomic re-encryption — `src/compadre/keys/cli/commands/system.py`
 - `CLAUDE.md` §Non-Obvious Gotchas (tombstone zero-length BLOB; single `fernet.decrypt` site; `rotate-encryption-key` tombstone-skip + key-echo; backup-tarball naming; `BACKUP_PASSPHRASE` empty-at-boot; `restore-keys.yml` archived-key warning; `health.yml` assertion-chain) — `CLAUDE.md`
 - `CLAUDE.md` §Language Policy (the Portuguese-template exception's justification) — `CLAUDE.md`
 - Lei Geral de Proteção de Dados Pessoais — Lei 13.709/2018 — `https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm`

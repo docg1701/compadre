@@ -1,6 +1,8 @@
 # Deployment Guide
 
-Full lifecycle management for Comadre TTS service using Ansible playbooks.
+Full lifecycle management for Compadre STT service using Ansible playbooks.
+
+**Last updated:** 2026-04-26
 
 ## Prerequisites
 
@@ -40,22 +42,18 @@ all:
     key_registry_encryption_key: "{{ lookup('env', 'KEY_REGISTRY_ENCRYPTION_KEY') }}"
     operator_contact_hint: "Contact ops@example.com for billing."
     billing_timezone: "UTC"
-    voices_local_dir: ""
     repo_url: "YOUR_REPO_URL"
     repo_branch: "master"
-    default_voice: "kokoro/pm_santa"
     domain: "localhost"
     landing_enabled: true
-    kokoro_model_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-    kokoro_voices_url: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
-    qwen3_enabled: true
-    qwen3_model_url: "https://huggingface.co/PabloHoties/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/qwen3-tts-0.6b-q8_0.gguf"
-    qwen3_tokenizer_url: "https://huggingface.co/PabloHoties/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/qwen3-tts-tokenizer-f16.gguf"
-    qwen3_model_local: ""
-    qwen3_tokenizer_local: ""
+    compadre_whisper_model_size: "large-v3-turbo"
+    compadre_whisper_compute_type: "int8"
+    compadre_whisper_cpu_threads: 4
+    compadre_whisper_language: "pt"
+    compadre_hf_home: "/app/models"
 ```
 
-For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/oracle.yml.example` as a starting point instead. It sets `qwen3_enabled: false` since the Qwen3 binary is x86_64-only, and configures a real domain for Let's Encrypt certificates.
+For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/oracle.yml.example` as a starting point instead. It configures a real domain for Let's Encrypt certificates.
 
 **Variables:**
 
@@ -65,24 +63,20 @@ For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/
 | `ansible_user` | Yes | SSH user with key-based auth |
 | `key_registry_encryption_key` | Yes | Fernet key for encrypting tax IDs at rest (reads from `KEY_REGISTRY_ENCRYPTION_KEY` env var on the control machine). Maps to the `KEY_REGISTRY_ENCRYPTION_KEY` env var inside the container. |
 | `operator_contact_hint` | No | Customer-facing contact string echoed in 401 hints. Maps to `OPERATOR_CONTACT_HINT`. |
-| `billing_timezone` | No | IANA timezone for billing calculations and the daily suspension sweep day-boundary (default: `UTC`). Maps to `BILLING_TIMEZONE`. **This is a contractual input** — the zone you set here dictates when a customer's `paid_until` expires and their key flips to 401; communicate it formally to customers at contract time. Override to a local zone (e.g. `America/Sao_Paulo`) only when you have informed them. |
+| `billing_timezone` | No | IANA timezone for billing calculations and the daily suspension sweep day-boundary (default: `UTC`). Maps to `BILLING_TIMEZONE`. **This is a contractual input** — the zone you set here dictates when a customer's `paid_until` expires and their key flips to 401; communicate it formally to customers at contract time. |
 | `repo_url` | Yes | Git repository URL |
 | `repo_branch` | No | Branch to deploy (default: `master`) |
-| `default_voice` | No | Default voice for TTS when none specified (default: `kokoro/pm_santa`) |
 | `domain` | No | Domain for Caddy HTTPS (default: `localhost` for self-signed). Set to a real domain for Let's Encrypt auto-cert. |
 | `landing_enabled` | No | Deploy the public landing page at the root URL (default: `true`). When false, Caddy uses `Caddyfile-no-landing` which proxies all paths to the API. The API endpoints (`/v1/*`, `/health`, etc.) are always available regardless. |
-| `qwen3_enabled` | No | Enable Qwen3 engine (default: `true`). Set `false` on hosts where the x86_64 binary cannot run (e.g. aarch64 / Oracle Cloud Ampere A1). Maps to `QWEN3_ENABLED` env var. |
-| `voices_local_dir` | No | Local directory containing `kokoro/` and `qwen/` subdirectories with voice files (empty to skip). See [voice-management.md](voice-management.md). |
-| `kokoro_model_url` | No | URL to download Kokoro ONNX model on first start (default: GitHub release URL) |
-| `kokoro_voices_url` | No | URL to download Kokoro voices binary on first start (default: GitHub release URL) |
-| `qwen3_model_url` | No | URL to download Qwen3 GGUF model on first start (default: HuggingFace URL). Empty string skips download. |
-| `qwen3_tokenizer_url` | No | URL to download Qwen3 tokenizer GGUF on first start (default: HuggingFace URL). Empty string skips download. |
-| `qwen3_model_local` | No | Local path to pre-converted Qwen3 GGUF model for SCP deployment (empty to skip) |
-| `qwen3_tokenizer_local` | No | Local path to pre-converted Qwen3 tokenizer GGUF for SCP deployment (empty to skip) |
+| `compadre_whisper_model_size` | No | faster-whisper model size (default: `large-v3-turbo`). |
+| `compadre_whisper_compute_type` | No | CTranslate2 compute type (default: `int8`). |
+| `compadre_whisper_cpu_threads` | No | CPU threads for Whisper inference (default: `4`). |
+| `compadre_whisper_language` | No | Default transcription language (default: `pt`). |
+| `compadre_hf_home` | No | HuggingFace Hub cache directory (default: `/app/models`). |
 
 ## Complete Deployment Flow
 
-A fresh deploy requires three playbooks in sequence:
+A fresh deploy requires two playbooks in sequence:
 
 ```bash
 cd deploy/ansible
@@ -92,13 +86,10 @@ export KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import
 ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
   -e "ansible_become_password=YOUR_SUDO_PASS"
 
-# 2. Deploy voices — copies voice files from local machine to VPS
-ansible-playbook playbooks/deploy-voices.yml -i inventory/production.yml
-
-# 3. Verify — read-only diagnostic check
+# 2. Verify — read-only diagnostic check
 ansible-playbook playbooks/health.yml -i inventory/production.yml
 
-# 4. Register the first customer and issue their API key
+# 3. Register the first customer and issue their API key
 ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
   compadre-keys create-customer --name 'Acme Demo' --email ops@acme.example --cpf 11144477735"
 ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
@@ -106,22 +97,21 @@ ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt
 # The plaintext (cmpd_live_...) is printed once; copy it to your client config now.
 ```
 
-After these four steps, the service is fully operational and ready to authenticate traffic.
+After these three steps, the service is fully operational and ready to authenticate traffic.
 
 ## Available Playbooks
 
 | Playbook | Purpose | Requires sudo |
 |----------|---------|---------------|
 | `bootstrap.yml` | First-time VPS setup (Docker, UFW, build, start) | Yes |
-| `deploy-voices.yml` | Copy voice files to VPS (Kokoro .npy, Qwen3 .wav) | No |
-| `deploy-models.yml` | Copy Qwen3 GGUF models via SCP (if not using auto-download) | No |
+| `deploy-models.yml` | Pre-seed faster-whisper HuggingFace cache for air-gapped deploys | No |
 | `update.yml` | Pull latest code, rebuild image, restart services | No |
 | `health.yml` | Read-only diagnostic (status, memory, disk, cron) | No |
 | `cleanup.yml` | Full decommission: remove all artifacts and system components | Yes |
 
 ## Bootstrap -- First Deployment
 
-Deploys Comadre on a clean Ubuntu VPS with a single command.
+Deploys Compadre on a clean Ubuntu VPS with a single command.
 
 **What it does:**
 
@@ -132,13 +122,12 @@ Deploys Comadre on a clean Ubuntu VPS with a single command.
 5. Installs and configures UFW firewall (ports 22, 80, 443)
 6. Clones the repository to `~/compadre`
 7. Scrubs any legacy `~/compadre/data/keys/` directory left over from pre-volume-migration bootstraps (idempotent on fresh hosts)
-8. Creates empty voices directory structure in Docker volume
-9. Creates `.env` with all configuration variables
-10. Builds the Docker image and starts the service (compadre-stt + Caddy)
-11. Configures cron jobs (audio cleanup, daily suspension sweep, nightly key-registry backup)
-12. Waits for the health endpoint to report `healthy`
+8. Creates `.env` with all configuration variables
+9. Builds the Docker image and starts the service (compadre-stt + Caddy)
+10. Configures cron jobs (daily suspension sweep, nightly key-registry backup)
+11. Waits for the health endpoint to report `healthy`
 
-**Bootstrap does NOT deploy voice files and does NOT create customers or API keys.** Run `deploy-voices.yml` afterwards to copy voice files, and use `compadre-keys create-customer` + `compadre-keys issue-key` to populate the registry before any traffic is expected.
+**Bootstrap does NOT create customers or API keys.** Use `compadre-keys create-customer` + `compadre-keys issue-key` to populate the registry before any traffic is expected.
 
 **Run:**
 
@@ -157,11 +146,11 @@ ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
 ```text
 TASK [[Summary] Report deployment status]
 ============================================
-Comadre TTS Service -- Bootstrap Complete
+Compadre STT Service -- Bootstrap Complete
 ============================================
 
 Service Status:  healthy
-Loaded Voices:   kokoro/pf_dora, kokoro/pm_alex, kokoro/pm_santa, qwen/female, qwen/galvani
+Loaded Model:    large-v3-turbo
 Endpoint URL:    https://YOUR_VPS_DOMAIN
 ============================================
 ```
@@ -169,18 +158,17 @@ Endpoint URL:    https://YOUR_VPS_DOMAIN
 **Test the deployment (after issuing a key):**
 
 ```bash
-curl -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
+curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Ola mundo", "voice":"kokoro/pm_santa"}' \
-  --output test.ogg
+  -F "file=@test.opus" \
+  -F "response_format=text"
 ```
 
 The playbook is idempotent -- safe to run multiple times.
 
 ## Update -- Deploy New Version
 
-Updates a running Comadre deployment from the latest git commit.
+Updates a running Compadre deployment from the latest git commit.
 
 **What it does:**
 
@@ -192,7 +180,7 @@ Updates a running Comadre deployment from the latest git commit.
 
 **What it preserves:**
 
-- Docker volumes (models, voices, audio) are not affected
+- Docker volumes (models, registry) are not affected
 - `.env` file is not modified
 - Cron jobs remain unchanged
 
@@ -217,15 +205,15 @@ Read-only diagnostic tool for troubleshooting. Never modifies anything.
 **What it reports:**
 
 - Container state (running or not)
-- Health endpoint response (status, voices, engines, memory, uptime)
-- Disk usage (root filesystem and audio volume)
-- Cron job status (audio cleanup, daily suspension sweep, nightly key-registry backup)
+- Health endpoint response (status, models, engines, memory, uptime)
+- Disk usage (root filesystem)
+- Cron job status (daily suspension sweep, nightly key-registry backup)
 
 **Warnings triggered automatically:**
 
 - Memory usage above 5 GB
 - Disk usage above 80%
-- Qwen3 engine not loaded (missing GGUF models or voice files)
+- STT model not loaded
 
 **Run:**
 
@@ -256,18 +244,18 @@ case $rc in
 esac
 ```
 
-The eight checks in each report are: `Database`, `Schema version`, `Customers`, `Keys`, `Last suspension sweep`, `Cron`, `Last backup`, `Auth cache`. `Last backup` is `info`-only until the backup playbook ships — it never flips `is_healthy` today.
+The checks in each report are: `Database`, `Schema version`, `Customers`, `Keys`, `Last suspension sweep`, `Cron`, `Backup cron`, `TZ drift`, `Last backup`, `Auth cache`.
 
 ## Cleanup -- Full Decommission
 
-Removes all Comadre artifacts **and** system-level components from the VPS, restoring it to its pre-bootstrap state. This is irreversible.
+Removes all Compadre artifacts **and** system-level components from the VPS, restoring it to its pre-bootstrap state. This is irreversible.
 
 **What it removes:**
 
 Application artifacts:
 
 - Docker containers, images, volumes, and build cache
-- Cron jobs (`compadre-audio-cleanup`, `compadre-daily-suspension`, `compadre-keys-backup`, and the `CRON_TZ` envvar; legacy `compadre-daily-restart` is also scrubbed if present)
+- Cron jobs (`compadre-daily-suspension`, `compadre-keys-backup`, and the `CRON_TZ` envvar; legacy `compadre-daily-restart` is also scrubbed if present)
 - `~/compadre` directory
 
 System-level components (installed by bootstrap):
@@ -295,88 +283,37 @@ After cleanup, the VPS is restored to its pre-bootstrap state. To redeploy, run 
 
 ## Model Deployment
 
-Qwen3 GGUF models (~1.6 GB total) are too large for git. They deploy via SCP through the `deploy-models.yml` playbook.
+The faster-whisper model (~1.5 GB, int8 quantized) auto-downloads from HuggingFace Hub on first startup. For air-gapped deployments, pre-seed the cache using the `deploy-models.yml` Ansible playbook.
 
-**Prerequisites:**
+**Auto-download (default):**
 
-- Qwen3 models must be converted locally from HuggingFace safetensors
-- See [quantizing-qwen3-models.md](quantizing-qwen3-models.md) for the conversion procedure
-- Two files needed: `qwen3-tts-0.6b-q8_0.gguf` (~1.3 GB) and `qwen3-tts-tokenizer-f16.gguf` (~325 MB)
-- **Preferred method:** Models auto-download on first startup when `QWEN3_MODEL_URL` and `QWEN3_TOKENIZER_URL` are set in the inventory. Pre-built GGUF files are available from `PabloHoties/Qwen3-TTS-12Hz-0.6B-Base-GGUF` on HuggingFace. Manual deployment via this playbook is only needed for air-gapped environments.
+On first startup, the service calls `snapshot_download()` to fetch `Systran/faster-whisper-large-v3-turbo` into `COMPADRE_HF_HOME`. This requires outbound HTTPS to `huggingface.co`. Download time is typically 1-2 minutes on a 100 Mbps link.
 
-**Configure inventory:**
-
-```yaml
-qwen3_model_local: "/path/to/qwen3-tts-0.6b-q8_0.gguf"
-qwen3_tokenizer_local: "/path/to/qwen3-tts-tokenizer-f16.gguf"
-```
-
-**Run:**
+**Pre-seed for air-gapped deploys:**
 
 ```bash
 cd deploy/ansible
 ansible-playbook playbooks/deploy-models.yml -i inventory/production.yml
 ```
 
-The playbook copies files to a staging directory on the VPS, then deploys them into the `compadre-models` Docker volume using a temporary helper container. Staging files are cleaned up automatically.
+The playbook creates a temporary helper container with the `compadre-models` volume mounted, copies the pre-downloaded HuggingFace cache into the volume, and cleans up. After deployment, the service skips the download on startup.
 
-After deployment, restart the service to load the new models:
+**Verify the cache:**
 
 ```bash
-ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose restart"
+docker compose exec compadre-stt ls -la /app/models/hub/
 ```
-
-**Alternative: auto-download.** If you set `QWEN3_MODEL_URL` and `QWEN3_TOKENIZER_URL` in `.env`, the application downloads models automatically on first start. This is slower but requires no manual file transfer.
-
-## Voice Deployment
-
-Voices are discovered from the filesystem at runtime. No environment variable configuration is needed for individual voices -- just place files in the correct directory. For full details, see [voice-management.md](voice-management.md).
-
-**Deploy voices via Ansible:**
-
-1. Set `voices_local_dir` in inventory to a local directory containing `kokoro/` and/or `qwen/` subdirectories:
-
-    ```yaml
-    voices_local_dir: "/path/to/my-voices"
-    ```
-
-    Directory structure:
-
-    ```text
-    /path/to/my-voices/
-      kokoro/          # .npy voice profiles (optional)
-      qwen/            # .wav reference audio (optional)
-        galvani.wav
-        female.wav
-    ```
-
-2. Run bootstrap (for first deploy) or the `deploy-voices.yml` playbook:
-
-    ```bash
-    cd deploy/ansible
-    ansible-playbook playbooks/deploy-voices.yml -i inventory/production.yml
-    ```
-
-3. Voices are available immediately -- no restart needed.
-
-**Requirements for Qwen3 reference WAVs:**
-
-- Duration: 3-10 seconds
-- Format: WAV, mono, 16kHz or higher sample rate
-- Content: clear speech in the target voice, minimal background noise
-
-**Seed reproducibility:** Qwen3-TTS supports seed values for consistent voice characteristics across generations. The same seed + reference WAV produces similar voice quality.
 
 ## HTTPS via Caddy
 
-Comadre uses Caddy as a reverse proxy for automatic HTTPS. The TTS service is only exposed internally on the Docker network — all external traffic goes through Caddy on ports 80/443.
+Compadre uses Caddy as a reverse proxy for automatic HTTPS. The STT service is only exposed internally on the Docker network — all external traffic goes through Caddy on ports 80/443.
 
 **With a public domain (Let's Encrypt):**
 
 Set `DOMAIN` in `.env` to your domain. Caddy automatically provisions and renews certificates:
 
 ```bash
-DOMAIN=tts.example.com
+DOMAIN=stt.example.com
 ```
 
 **With a private IP (self-signed):**
@@ -385,25 +322,25 @@ Leave `DOMAIN` as `localhost` (default). Caddy generates a self-signed certifica
 
 **Configuration:** The Caddyfile is at `deploy/caddy/Caddyfile`. It uses handle-based routing to serve two concerns from a single domain:
 
-- **API paths** (`/v1/*`, `/health`, `/docs`, `/openapi.json`, `/redoc`) are reverse-proxied to `compadre-stt:8000` via Docker internal DNS.
+- **API paths** (`/v1/*`, `/health`) are reverse-proxied to `compadre-stt:8000` via Docker internal DNS.
 - **All other paths** serve a static landing page from `/srv/www` (the `deploy/landing/` directory bind-mounted in `compose.yaml`).
 
-For multi-replica deployments, the Caddyfile uses the `dynamic a` upstream resolver to re-query Docker DNS every 5 seconds and load-balance across all healthy replica IPs with the `least_conn` policy (queue-depth-aware: routes each request to the replica with the fewest active connections, which equals the fewest queued+in-flight TTS jobs in Comadre's single-FIFO-lock architecture). Plain `reverse_proxy host:port` resolves DNS only once at startup and would pin all traffic to a single replica — `dynamic a` is required.
+For multi-replica deployments, the Caddyfile uses the `dynamic a` upstream resolver to re-query Docker DNS every 5 seconds and load-balance across all healthy replica IPs with the `least_conn` policy (queue-depth-aware: routes each request to the replica with the fewest active connections, which equals the fewest queued+in-flight STT jobs in Compadre's single-FIFO-lock architecture). Plain `reverse_proxy host:port` resolves DNS only once at startup and would pin all traffic to a single replica — `dynamic a` is required.
 
 A variant `deploy/caddy/Caddyfile-no-landing` exists for deployments where the landing page is disabled (`landing_enabled: false` in inventory). It proxies all paths to the API with no static file serving. The Ansible playbooks swap in the correct Caddyfile automatically based on the `landing_enabled` variable.
 
 ### Landing Page
 
-The default Caddyfile serves a self-contained HTML page at the root URL that lets anyone with a valid API key try Comadre from a browser. Control this with the `landing_enabled` ansible variable:
+The default Caddyfile serves a self-contained HTML page at the root URL that lets anyone with a valid API key try Compadre from a browser. Control this with the `landing_enabled` ansible variable:
 
 - **`landing_enabled: true`** (default): Uses the standard `Caddyfile` with handle-based routing. The landing page is served at `/`, API endpoints at their usual paths.
-- **`landing_enabled: false`**: Uses `Caddyfile-no-landing`, which proxies all traffic directly to the TTS service. Useful for internal/private deployments where a public-facing page is not wanted.
+- **`landing_enabled: false`**: Uses `Caddyfile-no-landing`, which proxies all traffic directly to the STT service. Useful for internal/private deployments where a public-facing page is not wanted.
 
-The API endpoints (`/v1/*`, `/health`, `/docs`, `/openapi.json`, `/redoc`) are always available regardless of the `landing_enabled` setting.
+The API endpoints (`/v1/*`, `/health`) are always available regardless of the `landing_enabled` setting.
 
 ## Key Registry Management
 
-Comadre authenticates every TTS request against a SQLite key registry encrypted with a single Fernet key (`KEY_REGISTRY_ENCRYPTION_KEY`). Customers and their API keys are managed entirely through the `compadre-keys` CLI, which runs inside the compadre-stt container and shares the registry volume.
+Compadre authenticates every STT request against a SQLite key registry encrypted with a single Fernet key (`KEY_REGISTRY_ENCRYPTION_KEY`). Customers and their API keys are managed entirely through the `compadre-keys` CLI, which runs inside the compadre-stt container and shares the registry volume.
 
 ### How keys work
 
@@ -478,7 +415,7 @@ See [monetization.md](monetization.md) for the full CLI reference and lifecycle 
 
 ### LGPD operator procedures
 
-Brazilian LGPD (Art. 18) gives customers the right to access the personal data Comadre holds about them and to request irreversible deletion. Two CLI verbs implement the operator side of that contract:
+Brazilian LGPD (Art. 18) gives customers the right to access the personal data Compadre holds about them and to request irreversible deletion. Two CLI verbs implement the operator side of that contract:
 
 **Data-subject access request (Art. 18 II / V).** Emit a machine-readable document with the customer's name, email, decrypted tax ID (formatted), notes, and associated key prefixes:
 
@@ -527,7 +464,7 @@ docker compose restart compadre-stt
 #    line. Docker's default ``json-file`` log driver writes container stdout
 #    (including the ConfirmationLine echo of the new key) to disk under
 #    /var/lib/docker/containers/<id>/. journald similarly persists it. Even
-#    with the Comadre app's PII-austere INFO log, the operator-facing echo
+#    with the Compadre app's PII-austere INFO log, the operator-facing echo
 #    in step 2's stdout is a real log surface that must be scrubbed.
 docker compose logs compadre-stt --since 10m --no-color > /tmp/rotation.log  # inspect
 sudo journalctl --rotate && sudo journalctl --vacuum-time=10m  # systemd journal
@@ -546,7 +483,7 @@ Story 4.3 ships two ansible playbooks — `backup-keys.yml` and `restore-keys.ym
 **One-time setup.** Generate a long passphrase and export it before the first `bootstrap.yml` run:
 
 ```bash
-export COMADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export COMPADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ansible-playbook deploy/ansible/playbooks/bootstrap.yml \
   -i deploy/ansible/inventory/production.yml \
   -e "ansible_become_password=$SUDO_PASS"
@@ -616,7 +553,7 @@ The `compadre-keys health --format json` exit-7-on-warn/fail contract is the bri
 **Recommended cadences.** Pick whichever matches your existing alerting rhythm — the playbook's value is the exit code, not any specific integration:
 
 - **Nightly cron + log aggregator** — `30 3 * * * cd ~/compadre && ansible-playbook deploy/ansible/playbooks/health.yml -i deploy/ansible/inventory/production.yml 2>&1 | logger -t compadre-health`. Pattern-match on `ASSERTION FAILED` in your log alerting.
-- **Per-PR CI** — Story 4.5x will boot a docker-compose-spun-up Comadre and run `health.yml` against it on every pull request; treat the exit code as a build gate.
+- **Per-PR CI** — Story 4.5x will boot a docker-compose-spun-up Compadre and run `health.yml` against it on every pull request; treat the exit code as a build gate.
 - **Weekly hands-on audit** — SSH and run the playbook before scheduled maintenance windows. The `success_msg` strings document the green state for the change-control record.
 - **Post-incident verification** — the LGPD breach runbook (Story 4.6) will cite `health.yml` as the "after restore-keys.yml, before re-opening to traffic" gate.
 
@@ -664,7 +601,7 @@ If the API is only accessed from known IPs (e.g., your n8n server), you can rest
 
     encode gzip
 
-    @api path /v1/* /health /docs /openapi.json /redoc
+    @api path /v1/* /health
     handle @api {
         reverse_proxy {
             dynamic a { name compadre-stt; port 8000; refresh 5s }
@@ -688,11 +625,10 @@ Replace the IPs with your allowed addresses. Restart Caddy after changes: `docke
 
 ## Cron Jobs
 
-The bootstrap playbook installs three user-level cron jobs and a `CRON_TZ` envvar. The container's `restart: unless-stopped` policy plus the healthcheck cover transient process failures, so no daily restart is configured.
+The bootstrap playbook installs two user-level cron jobs and a `CRON_TZ` envvar. The container's `restart: unless-stopped` policy plus the healthcheck cover transient process failures, so no daily restart is configured.
 
 **Cron entries installed by bootstrap:**
 
-- `compadre-audio-cleanup` -- every 6 hours, deletes generated audio files older than 24 hours
 - `compadre-daily-suspension` -- 00:30 in `billing_timezone`, suspends keys whose `paid_until` has elapsed
 - `compadre-keys-backup` -- 02:00 in `billing_timezone` (configurable via `backup_hour`), captures an encrypted snapshot of the key registry; archives older than `backup_retention_days` are pruned
 - `CRON_TZ` envvar -- pins the cron daemon's timezone to `billing_timezone` so the suspension sweep and backup fire at the configured local hour
@@ -700,12 +636,12 @@ The bootstrap playbook installs three user-level cron jobs and a `CRON_TZ` envva
 Verify cron is active:
 
 ```bash
-ssh YOUR_SSH_USER@YOUR_VPS_IP "crontab -l | grep comadre"
+ssh YOUR_SSH_USER@YOUR_VPS_IP "crontab -l | grep compadre"
 ```
 
 ## Horizontal Scaling
 
-Each Comadre instance processes one request at a time (single FIFO queue via `asyncio.Lock`). To increase throughput, add replicas instead of increasing CPU per instance.
+Each Compadre instance processes one request at a time (single FIFO queue via `asyncio.Lock`). To increase throughput, add replicas instead of increasing CPU per instance.
 
 ### How to scale
 
@@ -733,17 +669,15 @@ Caddy load-balances across all healthy replicas using the `dynamic a` upstream r
 |----------|-----------|------------|------------|
 | CPU      | 4 cores   | 8 cores    | 12 cores   |
 | RAM      | 6 GB      | 12 GB      | 18 GB      |
-| Disk     | Shared (models + voices volumes) | Same | Same |
+| Disk     | Shared (models volume) | Same | Same |
 
-Memory breakdown per replica: Python process with Kokoro loaded ~4.2 GB peak RSS + Qwen3 subprocess ~1.5 GB peak during inference = ~5.7 GB combined. The 6 GB limit provides ~300 MB headroom. Qwen3 has a 4-core sweet spot — beyond 4 cores per replica, diminishing returns (<2% gain).
+Memory breakdown per replica: Python process with faster-whisper loaded ~2 GB peak RSS. The 6 GB limit provides ~4 GB headroom for concurrent requests and OS buffers.
 
 ### What is shared vs per-instance
 
 | Component | Scope | Notes |
 |-----------|-------|-------|
 | Models (`compadre-models`) | Shared volume | All replicas read the same model files |
-| Voices (`compadre-voices`) | Shared volume (read-only) | All replicas discover the same voices |
-| Audio (`compadre-audio`) | Shared volume | Cleanup cron runs on one replica |
 | FIFO queue (`asyncio.Lock`) | Per-instance | Each replica has its own queue |
 | Per-key rate-limit buckets (`limits` in-memory) | Per-instance | Each replica holds its own moving-window counters. Effective RPM for a customer = `rate_limit_rpm × replicas`. |
 | Auth cache (`AuthCache`) | Per-instance | 60 s TTL ceiling; every `compadre-keys` mutation touches `{KEY_REGISTRY_DB_PATH}.invalidate` and each replica's cache flushes on the next read, so a CLI change propagates across replicas synchronously when they share the registry volume. |
@@ -754,6 +688,5 @@ Memory breakdown per replica: Python process with Kokoro loaded ~4.2 GB peak RSS
 
 - **Rate-limit buckets are per-instance.** With N replicas the effective RPM for a key is `N × rate_limit_rpm` because each replica's `limits` in-memory storage runs its own moving window. The default deploy is `replicas: 1`, so this is dormant; if you scale up, either (a) divide the intended per-key RPM by the replica count when setting `compadre-keys update-key --rpm`, or (b) accept the multiplied limit as acceptable elasticity. Shared-storage rate-limiting (Redis/SQLite) is a candidate future story. See [rate-limiting.md](rate-limiting.md).
 - **Queue depth is per-instance.** The `/health` endpoint reports the queue depth of whichever replica handles the request. For cluster-wide monitoring, check all replicas or use centralized logging.
-- **Audio cleanup cron** runs `docker compose exec` which targets one replica. Since the audio volume is shared, this is sufficient.
 - **First deployment with replicas > 1** should start with `replicas: 1` to download and cache models in the shared volume. After models are cached, scale up. Concurrent downloads from multiple replicas to the same temp file can corrupt the model.
 - **Caddy blocks on all replicas healthy.** The `depends_on: condition: service_healthy` in compose.yaml means Caddy waits for every replica to pass its healthcheck before starting. If any single replica fails (e.g., OOM during concurrent model loading), Caddy never starts and the entire service is unreachable. For multi-replica deployments, consider changing to `condition: service_started`.

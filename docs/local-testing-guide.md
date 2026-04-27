@@ -1,37 +1,19 @@
 # Local Testing Guide
 
-How to run Comadre end-to-end on your machine with all features working.
+How to run Compadre end-to-end on your machine.
+
+**Last updated:** 2026-04-26
 
 ## Prerequisites
 
 - Docker and Docker Compose v2
 - 4 vCPU, 8 GB RAM minimum
-- ~4 GB free disk (models + Docker image)
+- ~3 GB free disk (model + Docker image)
 - No GPU required (CPU-only inference)
 
 ## What is already in the repo
 
-These files are tracked in git and require no action:
-
-| Item | Location | Purpose |
-| --- | --- | --- |
-| `qwen3-tts-cli` binary | `deploy/bin/` | Qwen3 C++ inference CLI |
-| Voice reference WAVs | `voices/` | 3 files: female, male, galvani |
-| Noise WAVs | `noise/` | 2 files: hiss + room tone for post-processing |
-| espeak-ng pt_extra dictionary | `deploy/espeak-ng/pt_extra` | Custom sigla pronunciation (CPF, CNPJ, etc.) |
-
-## What must be obtained separately
-
-These files are gitignored because of their size:
-
-| Item | Size | How to get |
-| --- | --- | --- |
-| `kokoro-v1.0.onnx` | 325 MB | Auto-downloads on first startup |
-| `voices-v1.0.bin` | 27 MB | Auto-downloads on first startup |
-| `qwen3-tts-0.6b-q8_0.gguf` | 1.3 GB | Manual conversion from HuggingFace |
-| `qwen3-tts-tokenizer-f16.gguf` | 326 MB | Manual conversion from HuggingFace |
-
-Kokoro models download automatically. Qwen3 models must be converted or copied manually (see below).
+The faster-whisper model auto-downloads on first startup from HuggingFace Hub. No manual download is required for testing.
 
 ## Step 1: Create .env
 
@@ -61,87 +43,15 @@ docker compose exec compadre-stt compadre-keys issue-key \
 # The printed cmpd_live_... plaintext is what you pass in curl.
 ```
 
-## Step 2: Obtain Qwen3 models
-
-Skip this step if you only want to test Kokoro voices (`kokoro/pm_santa`, `kokoro/pf_dora`, `kokoro/pm_alex`). Qwen3 voices (`qwen/<name>`) require the GGUF models.
-
-### Option A: Copy existing models (if you already have them)
-
-If you previously converted the models or have them from another machine:
-
-```bash
-# Place them in the models/ directory
-cp /path/to/qwen3-tts-0.6b-q8_0.gguf models/
-cp /path/to/qwen3-tts-tokenizer-f16.gguf models/
-```
-
-### Option B: Convert from HuggingFace (fresh machine)
-
-This is a one-time process that takes about 20 minutes and needs ~5 GB of temporary disk space. Run these commands in a separate terminal (not inside Claude Code, which has shell timeouts).
-
-```bash
-# 1. Create a temporary Python venv for conversion (CPU-only PyTorch)
-uv venv tmp/convert-venv
-
-# 2. Install conversion dependencies
-uv pip install --python tmp/convert-venv/bin/python \
-  torch --index-url https://download.pytorch.org/whl/cpu
-uv pip install --python tmp/convert-venv/bin/python \
-  numpy safetensors tqdm gguf huggingface_hub
-
-# 3. Download the HuggingFace model (~1.2 GB)
-tmp/convert-venv/bin/hf download Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --local-dir tmp/Qwen3-TTS-12Hz-0.6B-Base
-
-# 4. Clone the conversion scripts
-git clone --depth 1 https://github.com/predict-woo/qwen3-tts.cpp.git tmp/qwen3-tts-convert
-
-# 5. Convert TTS model to Q8_0
-mkdir -p models
-tmp/convert-venv/bin/python tmp/qwen3-tts-convert/scripts/convert_tts_to_gguf.py \
-  --input tmp/Qwen3-TTS-12Hz-0.6B-Base \
-  --output models/qwen3-tts-0.6b-q8_0.gguf \
-  --type q8_0
-
-# 6. Convert tokenizer to F16
-tmp/convert-venv/bin/python tmp/qwen3-tts-convert/scripts/convert_tokenizer_to_gguf.py \
-  --input tmp/Qwen3-TTS-12Hz-0.6B-Base \
-  --output models/qwen3-tts-tokenizer-f16.gguf \
-  --type f16
-
-# 7. Verify the files
-ls -lh models/qwen3-tts-0.6b-q8_0.gguf     # ~1.3 GB
-ls -lh models/qwen3-tts-tokenizer-f16.gguf  # ~326 MB
-
-# 8. Clean up temporary files (~5 GB freed)
-rm -rf tmp/convert-venv tmp/Qwen3-TTS-12Hz-0.6B-Base tmp/qwen3-tts-convert
-```
-
-For the full conversion reference, see [quantizing-qwen3-models.md](quantizing-qwen3-models.md).
-
-## Step 3: Load Qwen3 models into Docker volume
-
-The `models/` directory is not bind-mounted. Docker Compose uses a named volume (`compadre-models`). Copy the models into it:
-
-```bash
-docker volume create compadre-models
-docker run --rm \
-  -v compadre-models:/models \
-  -v "$(pwd)/models":/src:ro \
-  alpine sh -c 'cp /src/qwen3-tts-0.6b-q8_0.gguf /src/qwen3-tts-tokenizer-f16.gguf /models/'
-```
-
-Kokoro models do not need this step -- they auto-download into the volume on first startup.
-
-## Step 4: Build and start
+## Step 2: Build and start
 
 ```bash
 docker compose up --build -d
 ```
 
-First build takes 3-5 minutes (espeak-ng compilation, Python dependencies). Subsequent builds use Docker cache.
+First build takes 3-5 minutes (Python dependencies, ffmpeg). Subsequent builds use Docker cache.
 
-## Step 5: Wait for startup
+## Step 3: Wait for startup
 
 Watch the logs until you see the service is ready:
 
@@ -151,10 +61,9 @@ docker compose logs -f
 
 Startup phases:
 
-1. Kokoro models download (if not cached) -- 1-2 minutes
-2. Qwen3 model loading -- 10-20 seconds
-3. Engine warm-up (dummy inference) -- 10-30 seconds
-4. `startup | Service ready` appears in logs
+1. faster-whisper model download (if not cached) -- 1-2 minutes
+2. Engine warm-up -- 10-30 seconds
+3. `startup | Service ready` appears in logs
 
 Check the health endpoint:
 
@@ -167,110 +76,104 @@ Expected response when fully ready:
 ```json
 {
     "status": "healthy",
-    "voices": ["kokoro/pf_dora", "kokoro/pm_alex", "kokoro/pm_santa", "qwen/female", "qwen/galvani"],
+    "models": ["large-v3-turbo"],
     "engines": {
-        "kokoro": {"loaded": true, "voices": ["kokoro/pf_dora", "kokoro/pm_alex", "kokoro/pm_santa"]},
-        "qwen3": {"loaded": true, "voices": ["qwen/female", "qwen/galvani"]}
+        "whisper": {
+            "loaded": true,
+            "model": "large-v3-turbo",
+            "compute_type": "int8",
+            "cpu_threads": 4
+        }
     },
     "queue_depth": 0,
     "uptime_seconds": 42,
     "memory_mb": 1024,
-    "version": "2.0.0"
+    "version": "1.0.0"
 }
 ```
 
-If you skipped Qwen3 models, `qwen3.loaded` will be `false` and only Kokoro voices will appear.
+## Step 4: Test transcription with all formats
 
-## Step 6: Test each voice
-
-### Kokoro voices (5-16 seconds latency)
+Create a short test audio file (or use an existing one):
 
 ```bash
-# kokoro/pm_santa (male, default)
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Bom dia, como posso ajudar?", "voice":"kokoro/pm_santa"}' \
-  --output test-santa.ogg
-
-# kokoro/pf_dora (female)
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Seu CPF foi validado com sucesso.", "voice":"kokoro/pf_dora"}' \
-  --output test-dora.ogg
-
-# kokoro/pm_alex (male)
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"O FGTS foi depositado na sua conta.", "voice":"kokoro/pm_alex"}' \
-  --output test-alex.ogg
+# Generate a 5-second test audio with ffmpeg (optional)
+ffmpeg -f lavfi -i "sine=frequency=1000:duration=5" -c:a libopus test.opus
 ```
 
-### Qwen3 voices (12-37 seconds latency)
+### Text format (default)
 
 ```bash
-# qwen/female
-curl -k -X POST https://localhost/v1/audio/speech \
+curl -k -s https://localhost/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Obrigada por entrar em contato.", "voice":"qwen/female"}' \
-  --output test-qwen-female.ogg
-
-# qwen/male
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Seu atendimento foi registrado.", "voice":"qwen/male"}' \
-  --output test-qwen-male.ogg
-
-# qwen/galvani (uses galvani.wav reference)
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Esta e a voz clonada falando.", "voice":"qwen/galvani"}' \
-  --output test-galvani.ogg
+  -F "file=@test.opus" \
+  -F "response_format=text"
 ```
 
-### WAV output (instead of OGG Opus)
+### JSON format
 
 ```bash
-curl -k -X POST https://localhost/v1/audio/speech \
+curl -k -s https://localhost/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Teste em formato WAV.", "voice":"kokoro/pm_santa", "response_format":"wav"}' \
-  --output test.wav
+  -F "file=@test.opus" \
+  -F "response_format=json"
 ```
 
-### Live playback (pipe to ffplay)
-
-Stream audio directly to speakers without saving a file. Requires WAV format for pipe compatibility:
+### Verbose JSON (with timestamps)
 
 ```bash
-# Kokoro female voice
-curl -s -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
+curl -k -s https://localhost/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Seu CPF foi validado com sucesso.","voice":"kokoro/pf_dora","response_format":"wav"}' \
-  | ffplay -nodisp -autoexit -
-
-# Qwen3 cloned voice
-curl -s -X POST https://YOUR_VPS_DOMAIN/v1/audio/speech \
-  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Seu CPF foi validado com sucesso.","voice":"qwen/female","response_format":"wav"}' \
-  | ffplay -nodisp -autoexit -
+  -F "file=@test.opus" \
+  -F "response_format=verbose_json"
 ```
 
-OGG Opus does not support pipe streaming. Use `response_format: wav` when piping to ffplay.
-
-### Error example (missing auth)
+### SRT subtitles
 
 ```bash
-curl -k -X POST https://localhost/v1/audio/speech \
-  -H "Content-Type: application/json" \
-  -d '{"input":"Teste sem autenticacao."}'
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
+  -F "file=@test.opus" \
+  -F "response_format=srt"
+```
+
+### VTT subtitles
+
+```bash
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
+  -F "file=@test.opus" \
+  -F "response_format=vtt"
+```
+
+## Step 5: Test language override and auto-detect
+
+### Force Portuguese (explicit)
+
+```bash
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
+  -F "file=@test.opus" \
+  -F "language=pt" \
+  -F "response_format=json"
+```
+
+### Auto-detect (omit language)
+
+```bash
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
+  -F "file=@test.opus" \
+  -F "response_format=json"
+```
+
+## Step 6: Test error cases
+
+### Missing authentication
+
+```bash
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -F "file=@test.opus"
 ```
 
 Expected 401 response:
@@ -285,16 +188,39 @@ Expected 401 response:
 }
 ```
 
+### Oversized upload
+
+Create a large dummy file:
+
+```bash
+dd if=/dev/zero of=large.bin bs=1M count=30
+curl -k -s https://localhost/v1/audio/transcriptions \
+  -H "Authorization: Bearer cmpd_live_YOUR_LOCAL_KEY" \
+  -F "file=@large.bin"
+```
+
+Expected 400 response:
+
+```json
+{
+  "error": {
+    "message": "File size exceeds 25 MB limit",
+    "type": "invalid_request_error",
+    "hint": "Compress the audio or split into shorter segments."
+  }
+}
+```
+
 ## Stopping and restarting
 
 ```bash
 # Stop
 docker compose down
 
-# Restart (models persist in Docker volumes)
+# Restart (model persists in Docker volume)
 docker compose up -d
 
-# Full reset (removes all volumes, models must be re-downloaded/copied)
+# Full reset (removes all volumes, model must be re-downloaded)
 docker compose down -v
 ```
 
@@ -308,25 +234,17 @@ Check logs for download or loading errors:
 docker compose logs --tail=50
 ```
 
-Common causes: network issue during Kokoro download, missing Qwen3 GGUF files, insufficient RAM.
+Common causes: network issue during model download, insufficient RAM, HuggingFace Hub unreachable.
 
-### Qwen3 voices not available
+### ffmpeg not found
 
-Verify models are in the volume:
-
-```bash
-docker run --rm -v compadre-models:/models alpine ls -lh /models/
-```
-
-Expected: `qwen3-tts-0.6b-q8_0.gguf` (~1.3 GB) and `qwen3-tts-tokenizer-f16.gguf` (~326 MB).
-
-### Siglas pronounced incorrectly
-
-Rebuild the image to recompile espeak-ng pt_extra:
+Verify ffmpeg is installed in the container:
 
 ```bash
-docker compose up -d --build --force-recreate
+docker compose exec compadre-stt ffmpeg -version | head -1
 ```
+
+If missing, rebuild the image: `docker compose up -d --build`
 
 ### Port already in use
 

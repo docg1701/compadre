@@ -1,4 +1,10 @@
+> ⚠️ **Historical Reference** — This is the implementation plan used during initial development
+> (2026-03 to 2026-04). Most tasks are complete. See [checkpoint-2026-04-26.md](checkpoint-2026-04-26.md)
+> for what remains. Do not re-execute completed tasks from this document.
+
 # Implementation Plan — Compadre (Speech-to-Text SaaS)
+
+**Last updated:** 2026-04 (historical)
 
 ## Goal
 

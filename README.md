@@ -1,5 +1,7 @@
 # Compadre
 
+**Last updated:** 2026-04-26
+
 <p align="center">
   <img src="assets/logo-compadre.webp" alt="Compadre Logo">
 </p>

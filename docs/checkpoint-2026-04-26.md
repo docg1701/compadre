@@ -1,3 +1,7 @@
+> ⚠️ **Snapshot** — Development checkpoint from 2026-04-26. Records what was completed
+> and what remained at that point. For current status, see the most recent checkpoint.
+> Language: pt-BR (checkpoint convention).
+
 # Compadre — Checkpoint Final de Implementação
 
 > Atualizado em: 2026-04-26
