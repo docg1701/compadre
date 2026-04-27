@@ -32,6 +32,42 @@
 
 ---
 
+# Progress — Plan 06 Review
+
+## Review
+
+### Correct (already good)
+- Phased evaluation with Gold/Silver/Bronze/Fail gates is an excellent risk-management structure.
+- Correctly identifies that RTF ≤ 0.3 on 4 vCPU is aggressive and provides a realistic "accept failure" exit strategy (Phase 3).
+- Non-negotiable invariants (`condition_on_previous_text=False`, `word_timestamps=True`) are properly protected.
+- WER regression ceiling (3 pp absolute, 2 pp for Gold) is sensible for Brazilian Portuguese.
+- `stt.py` already accepts `beam_size` parameter, making greedy decoding trivial to test.
+- Decision matrix format is reusable; acceptance gates are business-actionable.
+
+### Fixed (issue and resolution)
+- **Issue:** `src/compadre/api.py:158` hardcodes `beam_size=5`; the plan's file-modify list omits `api.py`.
+  **Resolution:** Documented in `plan-06-review.md`; `api.py` must be added to "Files to Modify" and updated to read `settings.whisper_beam_size`.
+- **Issue:** Distil-Whisper (`distil-large-v3`) — the single most promising CPU-only speedup candidate — is completely absent from the plan.
+  **Resolution:** Added as Candidate 8 in review with RTF/WER estimates and drop-in replacement rationale.
+- **Issue:** VAD filtering (`vad_filter=True` in faster-whisper) — a zero-integration-cost optimization that can skip 20–40 % silence in WhatsApp audio — is not mentioned.
+  **Resolution:** Added as Task 1c in Phase 1; could obsolete whisper.cpp before any model change.
+- **Issue:** Thread-count sweep and CTranslate2 compute_type sweep are absent; the plan assumes 4 threads / int8 is optimal without evidence.
+  **Resolution:** Added Task 1b (thread sweep) and Task 1d (compute_type sweep) to Phase 1.
+- **Issue:** `jiwer` is not in `pyproject.toml`; benchmark harness cannot run without it.
+  **Resolution:** Flagged in review; must be added as a dev/test dependency before plan execution.
+- **Issue:** `tests/fixtures/pt-br-reference/` does not exist and the plan provides no dataset acquisition strategy.
+  **Resolution:** Specified Common Voice Portuguese test split or operator-recorded clips as the two viable sources.
+- **Issue:** Effort estimate 3–5 days is optimistic; whisper.cpp integration + formatter adapter is realistically 3–5 days alone.
+  **Resolution:** Revised estimate to 5–8 days with early-exit criteria (Distil-Whisper or greedy Silver → skip whisper.cpp).
+
+### Note (observations / follow-up)
+- **`temperature` form field in `api.py:60` is dead code** — accepted from clients but never passed to `engine.transcribe()`. Plan 06 could evaluate whether wiring `temperature=0.0` improves greedy decoding stability, or the parameter should be removed.
+- **Plan 03 dependency is implicit, not explicit.** If compose.yaml env-var mismatches are not fixed, benchmarks may run with silently wrong settings. The plan should require `health.yml` to pass before benchmarking begins.
+- **The decision matrix scores are pre-research heuristics.** They should be regenerated from measured numbers in `plan-06-benchmark-results.md`; the review recommends annotating them as such.
+- **Greedy + `condition_on_previous_text=False` interaction risk is noted but not tested.** The combined effect on long audio (> 60 s) may be worse than the sum of individual effects; a repetition-rate stress test should be added.
+
+---
+
 # Progress — Plan 05 Review
 
 ## Review

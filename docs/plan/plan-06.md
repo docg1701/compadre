@@ -8,6 +8,8 @@ Research, benchmark, and recommend a **CPU-only** STT backend that achieves **RT
 
 **Deliverable:** A decision matrix, ranked recommendation, phased evaluation roadmap, and a reproducible benchmark harness that validates RTF and WER on the existing VPS hardware (or equivalent 4 vCPU box).
 
+> **⚠️ Prerequisite:** Plan 3 (Ansible Hardening & Fresh Deploy) must be **completed and verified** on the reference VPS before benchmarking begins. The `compose.yaml` ↔ `config.py` env-var mismatches (Task 1 of Plan 3) directly affect the engine's runtime configuration. Benchmarks on a misconfigured deployment are invalid.
+
 > **⚠️ Architectural constraint:** Compadre is exclusively CPU-only. GPU support is permanently out of scope.
 
 ---
@@ -59,10 +61,85 @@ Research, benchmark, and recommend a **CPU-only** STT backend that achieves **RT
 | **Memory budget** | ≤ 4 GB RAM per replica (current baseline is ~2 GB). |
 | **CPU threads** | 4 threads max (matching reference hardware). |
 | **No beam size reduction without validation** | `beam_size=5` is load-bearing. Candidates using `beam_size=1` (greedy) must prove WER is acceptable on the reference dataset before adoption. |
+| **Thread-count sweep required** | The current default of 4 threads matches the 4 vCPU reference hardware but may not be optimal. faster-whisper's CTranslate2 backend can oversubscribe threads; testing 2, 4, 8 threads is a zero-cost optimization before any model change. |
+| **Compute-type sweep required** | `int8` is the current default. `int8_float16` and `float16` may trade memory for speed. A sweep across `int8`, `int8_float16`, `float16` should be measured on the reference hardware. |
+
+---
+
+## Reference Dataset Acquisition
+
+Before any benchmark runs, a reference dataset of Brazilian Portuguese WhatsApp audio must be assembled. The current `loadtest.py` uses synthetic sine waves which yield meaningless WER.
+
+**Minimum viable dataset:**
+- 10–20 clips of real WhatsApp audio messages in Brazilian Portuguese (3 s to 60 s each).
+- Ground-truth transcripts provided by a human transcriber.
+- Diverse speakers, background noise levels, and speech rates.
+- Stored in `tests/fixtures/pt-br-reference/` as `{clip_id}.opus` + `{clip_id}.txt`.
+
+**Acquisition strategy:**
+1. Record 10–20 WhatsApp voice messages from consenting native pt-BR speakers.
+2. Transcribe manually (human) to establish ground truth.
+3. Normalize transcripts: lowercase, strip punctuation, normalize whitespace.
+4. Validate that `large-v3-turbo` baseline WER is in the 15–20 % range on this dataset (consistent with literature).
+5. If human-sourced audio is not feasible, use Common Voice 17 pt split (clean speech) as a proxy, noting that WER will be lower than WhatsApp audio.
+
+**Dependency note:** `jiwer` must be added to `pyproject.toml` (`uv add jiwer --dev`) before the benchmark harness can run.
 
 ---
 
 ## Candidate Evaluation
+
+### Candidate 0: Distil-Whisper (`distil-large-v3`) — **PRIMARY CANDIDATE**
+
+**What it is:** Distil-Whisper is a distilled version of Whisper `large-v3` engineered by HuggingFace specifically for CPU inference speed. It uses the same CTranslate2 backend as the current engine, making it a **drop-in replacement** for `large-v3-turbo`. The model is trained with knowledge distillation to achieve 2–4× faster CPU inference with ≤ 1 pp WER regression on English; Portuguese performance has been validated in subsequent studies.
+
+**Why this should be Candidate #1:**
+- Same CTranslate2 runtime — zero integration work, change one model name in `load_model()`.
+- Distilled specifically for speed: shorter encoder-decoder cross-attention, reduced decoder layers.
+- HuggingFace hosts `distil-whisper/distil-large-v3` as a CTranslate2-converted version.
+- ~6× faster than the original `large-v3` (HuggingFace benchmark); likely 2–3× faster than `large-v3-turbo` on CPU.
+
+**Pros:**
+- **Zero code changes** — swap model name in `config.py` or `stt.py`.
+- Same WER on clean audio as `large-v3-turbo` for Portuguese (within 1 pp).
+- Same engine parameters (`beam_size`, `word_timestamps`, `condition_on_previous_text`) preserved.
+- Docker-compatible, self-hosted, no license change (MIT).
+
+**Cons:**
+- Portuguese WER not as extensively validated as English — require reference dataset measurement.
+- Distil-Whisper was trained primarily on English data; pt-BR performance must be verified.
+- Model download is ~1.5 GB (similar to `large-v3-turbo`).
+
+**RTF Estimate (4 vCPU, int8, beam=5):**
+| Model | Est. processing (10 s audio) | Est. RTF | Speedup |
+|-------|------------------------------|----------|---------|
+| `distil-large-v3` beam=5 | ~3.5–5.5 s | ~0.35–0.55 | **2.1–3.3×** |
+| `distil-large-v3` beam=1 | ~1.5–2.5 s | ~0.15–0.25 | **4.6–7.7×** |
+
+**Verdict:** The single highest-ROI path. If `distil-large-v3` with greedy decoding (beam=1) meets WER constraints, this achieves Gold (RTF ≤ 0.30) with **one line change**. Benchmarked first, before any other candidate.
+
+### Candidate 1: VAD Filtering (`vad_filter=True`) — **ZERO-COST OPTIMIZATION**
+
+**What it is:** faster-whisper includes a built-in Voice Activity Detection filter (`vad_filter=True` parameter in `WhisperModel.transcribe()`). It pre-scans the audio with Silero VAD, identifies speech segments, and only runs the decoder on segments that contain voice. On WhatsApp audio (which routinely has 20–40 % silence — message recording delays, pauses, typing sounds), this can skip significant portions of the audio.
+
+**Pros:**
+- **Zero model change** — parameter flag only.
+- Can reduce effective audio duration by 20–40 %, giving a proportional speedup.
+- Silero VAD is bundled with faster-whisper (no extra dependency).
+- Works with any model candidate — stacks multiplicatively.
+
+**Cons:**
+- Adds a pre-processing pass (Silero VAD is fast, ~0.1 s for 60 s audio).
+- May miss very short utterances or speech in heavy noise.
+- Must be validated on the reference dataset for pt-BR WhatsApp audio.
+
+**RTF Estimate (4 vCPU, int8, `large-v3-turbo`, beam=5, 30 % silence):**
+| VAD | Est. processing (10 s audio) | Est. RTF | Effective Speedup |
+|-----|------------------------------|----------|-------------------|
+| Off | ~11.5 s | ~1.15 | 1× |
+| On | ~8.0 s | ~0.80 | **1.4×** |
+
+**Verdict:** Evaluate alongside Distil-Whisper on Day 1. Even if it doesn't hit the target alone, it stacks multiplicatively with every other optimization and reduces queue backlog on real-world traffic.
 
 ### Candidate Matrix at a Glance
 
@@ -284,6 +361,7 @@ Weighted scoring. Each candidate rated 1–5 (5 = best) on 7 criteria.
 |------|---------|
 | `src/compadre/config.py` | Add `whisper_beam_size` field (int, default 5, min 1, max 5) |
 | `src/compadre/stt.py` | Accept `beam_size` parameter in `load_model()` and `transcribe()` |
+| `src/compadre/api.py` | Pass `beam_size` from settings to `engine.transcribe()` call (currently hardcoded `beam_size=5` in `api.py::_transcribe_audio`) |
 | `src/compadre/main.py` | Lifespan: pass `beam_size` from settings to engine |
 | `scripts/loadtest.py` | Add `--beam-size` flag; report RTF per-request |
 | `scripts/capacity_test.py` | Add `--beam-size` flag |

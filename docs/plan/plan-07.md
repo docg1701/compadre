@@ -17,26 +17,49 @@ Restructure the CI pipeline from a single monolithic job into parallel quality g
    - Changes: Create a shell script that mirrors the exact steps of the current `ci.yml` job (install ffmpeg, uv sync, ruff, mypy, pytest) so failures can be reproduced on a developer laptop before pushing.
    - Acceptance: Running `bash scripts/ci-local.sh` produces the same pass/fail as the GitHub Actions CI job.
 
-2. **Audit test suite for environment-sensitive failures**
-   - File: run `uv run pytest --tb=long -q -m "not slow"` locally
-   - Changes: Catalog every test failure with its root cause (missing env var, path assumption, import error, fixture timeout). Document in a `ci-diagnosis.md` scratch file.
-   - Acceptance: A triaged list of all failures with proposed fixes assigned to each.
+2. **Fix the actual CI failures: ruff check + ruff format**
+   - **Root cause:** The CI does NOT fail because of test leaks or model downloads. The actual failures are:
+     - `uv run ruff check .` → **1 error** (`src/compadre/api.py:100` line too long, 89 > 88)
+     - `uv run ruff format --check .` → **6 files need reformatting** (`scripts/capacity_test.py`, `scripts/loadtest.py`, `src/compadre/config.py`, `tests/test_formatters.py`, `tests/test_preprocessing_audio.py`, `tests/test_stt.py`)
+   - **Fix:** Run `uv run ruff check --fix .` and `uv run ruff format .` to auto-fix all violations.
+   - **Verification:** `uv run pytest -m "not slow"` → **269 passed, 0 failures** (23.7 s). The test suite is clean; the CI redness comes from lint/format only.
+   - Acceptance: `uv run ruff check .` exits zero; `uv run ruff format --check .` exits zero.
 
-3. **Verify non-regression tests are never collected by default pytest AND by the current CI command**
+3. **Fix the `-m` override contract violation (preventive, not failure-causing)**
    - File: `pyproject.toml` (inspect `addopts`), `.github/workflows/ci.yml`
-   - Changes: Confirm `addopts = "-m 'not non_regression'"` excludes all 7 non-regression test files. **Also confirm that the CI command `pytest -m "not slow"` does NOT override the `addopts` exclusion.** Pytest's CLI `-m` flag **overrides** `addopts`, so `-m "not slow"` silently discards `-m 'not non_regression'`, causing non-regression tests to leak into the CI run (42 tests collected instead of 227). The fix: change the CI command to `pytest -m "not slow and not non_regression"`.
+   - Changes: Confirm `addopts = "-m 'not non_regression'"` excludes all 7 non-regression test files. **The CI command `pytest -m "not slow"` overrides the `addopts` exclusion**, causing 42 non-regression tests to leak into the CI run (269 tests collected instead of 227). These tests **all pass** — this is a **contract violation** (non-regression tests should only run in their dedicated job), not a bug causing red builds. Fix: change the CI command to `pytest -m "not slow and not non_regression"`.
    - Acceptance: `uv run pytest --collect-only -q -m "not slow and not non_regression"` shows 227 tests. `grep` of CI file for `non_regression` returns zero hits before fix, one hit after fix.
+
+4. **Fix the model-download risk in the test lifespan (preventive)**
+   - File: `tests/conftest.py`
+   - Changes: When `AsyncClient(transport=ASGITransport(app=app))` is used, FastAPI's lifespan runs. `lifespan` calls `ensure_whisper_model()` → `snapshot_download()` (~1.5 GB). **The `app` fixture calls `create_app()`; lifespan does NOT run until `ASGITransport` is instantiated in the `client` fixture.** Fix: mock `ensure_whisper_model` in the `app` fixture before yield:
+     ```python
+     monkeypatch.setattr("compadre.main.ensure_whisper_model", lambda **kwargs: None)
+     ```
+     This prevents any real model download while keeping lifespan state (rate_limiter, etc.) intact for tests that depend on it.
+   - Acceptance: Run `uv run pytest -m "not slow and not non_regression"` with network disabled — all tests pass in ~24 s without model download.
 
 ### Phase 2 — Fix failing tests
 
-4. **Fix any import or path errors in unit tests**
+> **Note on `@pytest.mark.slow`:** There are **zero** `@pytest.mark.slow` tests in the codebase as of 2026-04-27. The marker is defined in `pyproject.toml` but unused. The proposed `test-slow` CI job will be a placeholder until Plan 2 integration tests land. Document this explicitly so it doesn't confuse operators expecting slow test output.
+
+4. **Fix any import or path errors in unit tests (if any remain after Phase 1)**
    - File: individual test files identified in task 2
    - Changes: Correct wrong module paths, add missing conftest fixtures, ensure `KEY_REGISTRY_ENCRYPTION_KEY` and `KEY_REGISTRY_DB_PATH` are set before any test that needs them (most are covered by `_clear_settings_cache` + fixture `monkeypatch.setenv`, but some direct imports may escape).
    - Acceptance: All tests in `uv run pytest -m "not slow and not non_regression"` pass with zero failures.
 
 5. **Ensure test-fast runs without model download, network, or Docker**
-   - File: `tests/conftest.py`, `tests/test_stt.py`, `tests/test_download.py`
-   - Changes: Verify the `mock_engine` fixture fully replaces `faster_whisper.WhisperModel` (no real import reaches HuggingFace). Verify `test_download.py` mocks the network calls. **Fix the `app` fixture in `conftest.py`**: currently it calls `create_app()` before overriding `application.state.engine = mock_engine`, which means the lifespan startup phase triggers `ensure_whisper_model()` → `snapshot_download()` → hits HuggingFace Hub (~1.5 GB download on first run). Reorder so the mock engine is injected before lifespan runs, or mock `ensure_whisper_model` in the fixture.
+   - File: `tests/conftest.py`
+   - Changes: The `mock_engine` fixture already fully replaces `faster_whisper.WhisperModel` (no real import reaches HuggingFace). The model-download risk is in the `client` fixture: `AsyncClient(transport=ASGITransport(app=app))` triggers FastAPI lifespan → `ensure_whisper_model()` → `snapshot_download()` (~1.5 GB). Fix by mocking `ensure_whisper_model` in the `app` fixture:
+     ```python
+     @pytest.fixture
+     def app(mock_engine: MockEngine, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+         monkeypatch.setattr("compadre.main.ensure_whisper_model", lambda **kwargs: None)
+         application = create_app()
+         application.state.engine = mock_engine  # type: ignore[reportAttributeAccess]
+         return application
+     ```
+     This prevents model download while preserving lifespan state (rate_limiter, etc.) for tests that depend on it. Note: `create_app()` does NOT trigger lifespan; only `ASGITransport` does — so the `monkeypatch` must be applied before any fixture instantiates `ASGITransport(app=app)`.
    - Acceptance: Run `uv run pytest -m "not slow and not non_regression"` with network disabled (`unshare -n` or firewall rule) — all tests pass.
 
 6. **Fix mypy strict-mode violations if any exist**
@@ -46,7 +69,7 @@ Restructure the CI pipeline from a single monolithic job into parallel quality g
 
 7. **Fix ruff lint AND format violations**
    - File: any Python file flagged by `uv run ruff check .` or `uv run ruff format --check .`
-   - Changes: Fix all lint violations with `uv run ruff check --fix .`. **Also fix formatting violations** — currently `ruff format --check .` fails on 5 files (`scripts/capacity_test.py`, `scripts/loadtest.py`, `tests/test_formatters.py`, `tests/test_preprocessing_audio.py`, `tests/test_stt.py`). Run `uv run ruff format .` to auto-fix.
+   - Changes: Fix all lint violations with `uv run ruff check --fix .` (1 error: `api.py:100` line too long). **Also fix formatting violations** — currently `ruff format --check .` fails on 6 files (`scripts/capacity_test.py`, `scripts/loadtest.py`, `src/compadre/config.py`, `tests/test_formatters.py`, `tests/test_preprocessing_audio.py`, `tests/test_stt.py`). Run `uv run ruff format .` to auto-fix.
    - Acceptance: `uv run ruff check .` exits zero; `uv run ruff format --check .` exits zero.
 
 ### Phase 3 — Restructure CI into parallel jobs
@@ -85,22 +108,22 @@ Restructure the CI pipeline from a single monolithic job into parallel quality g
     - Changes: `astral-sh/setup-uv@v5` with `enable-cache: true` already caches uv packages. For Docker builds, use `docker/build-push-action@v6` with GitHub Actions cache backend (`cache-from: type=gha`, `cache-to: type=gha,mode=max`). For the non-regression job, pre-pull `caddy:2-alpine` and `nginx:alpine` into the Docker cache to avoid DockerHub throttling.
     - Acceptance: Second CI run on the same commit is significantly faster (<50% of first-run wall time). Docker images are pulled from cache, not from DockerHub.
 
-### Phase 3.5 — Codebase cleanup (stale TTS artifacts)
+### Phase 3.5 — Codebase cleanup (remaining stale TTS artifacts)
 
-The following stale references from the prior Comadre TTS project remain in the codebase and should be cleaned up as part of the CI pass (they trigger false positives in static scans and confuse reviewers):
+> **Note:** 6 of the 10 items from the original audit have already been cleaned up in prior passes:
+> `exceptions.py` (VoiceNotFoundError/GenerationError removed), `main.py` (Qwen3 comment removed),
+> `Caddyfile` (tts-service → compadre-stt), `rate_limit.py` (docstring corrected),
+> `test_no_raw_httpexception.py` (remediation hint correct).
+> Only the 4 items below remain.
+
+The following stale references from the prior Comadre TTS project remain in the codebase and should be cleaned up:
 
 | File | Stale reference | Fix |
 |------|----------------|-----|
-| `src/compadre/exceptions.py` | `VoiceNotFoundError` (mentions `kokoro/<name>`, `qwen/<name>`) | Rename to `ModelNotFoundError` or remove if unused |
-| `src/compadre/exceptions.py` | `GenerationError` (mentions "TTS generation fails") | Rename to `TranscriptionError` or remove if unused |
-| `src/compadre/main.py` | Comment referencing Qwen3 char-limit | Update comment to STT context |
-| `src/compadre/keys/cli/commands/keys.py` | Comment referencing "TTS-runtime fields (Kokoro/Qwen3 paths)" | Update comment |
-| `tests/test_non_regression/conftest.py` | Docstring referencing "Kokoro/Qwen3 model-download cost" | Update docstring |
-| `tests/test_non_regression/README.md` | Multiple `tts-service`, `Kokoro + Qwen3`, `/v1/audio/speech` refs | Update to `compadre-stt`, STT terminology, `/v1/audio/transcriptions` |
-| `tests/test_non_regression/test_no_raw_httpexception.py` | Remediation hint suggesting `VoiceNotFoundError` / `GenerationError` for 404/500 | Update hint to use STT-appropriate error classes |
-| `deploy/caddy/Caddyfile` | Comment "API paths → tts-service" | Update to "compadre-stt" |
-| `src/compadre/download.py` | Raw `os.environ` usage (violates AGENTS.md "no raw `os.environ`" rule) | Route through `config.py` or accept as justified for `HF_HOME` default |
-| `src/compadre/rate_limit.py` | Module docstring references `/v1/audio/speech` | Update to `/v1/audio/transcriptions` |
+| `src/compadre/keys/cli/commands/keys.py:700` | Comment referencing "TTS-runtime fields (Kokoro/Qwen3 paths, voices/noise dirs)" | Update comment to STT context |
+| `tests/test_non_regression/conftest.py:5` | Docstring referencing "Kokoro/Qwen3 model-download cost" | Update docstring to "faster-whisper model-download cost (~1.5 GB)" |
+| `tests/test_non_regression/README.md:92` | Still says "Kokoro + Qwen3 + tokenizer" in Why NOT section | Update to "faster-whisper large-v3-turbo (~1.5 GB)" |
+| `src/compadre/download.py` | Raw `os.environ.setdefault("HF_HOME", ...)` and `os.environ.get("HF_HOME", ...)` | **Justified exemption**: The function is called from `lifespan` with `cache_dir=settings.hf_home`, but `huggingface_hub.snapshot_download()` reads `HF_HOME` from the environment directly. Add a comment: `# scan-allow: HF_HOME set for huggingface_hub which reads os.environ directly` and keep the existing code. The new `test_no_raw_os_environ.py` non-regression test (Phase 4) will document this as the single justified exemption. |
 
 ### Phase 4 — Non-regression gates
 
@@ -131,9 +154,16 @@ The following stale references from the prior Comadre TTS project remain in the 
     - Changes: The `coverage` job (or a step within `test-fast`) runs `uv run coverage run -m pytest -m "not slow and not non_regression" --tb=short -q` followed by `uv run coverage report --fail-under=80`. Exclude test files, migration scripts, and `__init__.py` files via `.coveragerc` or `[tool.coverage]` in `pyproject.toml`. The fail-under threshold starts at 60% (current coverage unknown) and increments in follow-up stories toward 80%.
     - Acceptance: `coverage` job produces a terminal report and a `coverage.xml` artifact. The job fails if coverage drops below threshold.
 
-16. **Create `.coveragerc` configuration**
-    - File: new `.coveragerc` (or `[tool.coverage.run]` in `pyproject.toml`)
-    - Changes: Set `source = src/compadre`, `omit = */tests/*, */migrations/*, */__init__.py`. Set `branch = true` for branch coverage.
+16. **Add coverage configuration to `pyproject.toml`**
+    - File: `pyproject.toml`
+    - Changes: Add `[tool.coverage.run]` section (inline, no new dotfile):
+      ```toml
+      [tool.coverage.run]
+      source = ["src/compadre"]
+      omit = ["*/tests/*", "*/migrations/*", "*/__init__.py"]
+      branch = true
+      ```
+      This keeps configuration centralized and avoids `.coveragerc` drift.
     - Acceptance: `uv run coverage report` shows only application code. Test helpers, fixtures, and migrations are excluded.
 
 ### Phase 6 — Documentation
@@ -153,7 +183,7 @@ The following stale references from the prior Comadre TTS project remain in the 
 ## Files to Modify
 
 - `.github/workflows/ci.yml` — complete rewrite from monolithic to 7 parallel jobs
-- `pyproject.toml` — add `ci` dependency group (ansible-lint, yamllint), add `[tool.coverage.run]` or keep `.coveragerc` separate, update `addopts` if needed
+- `pyproject.toml` — add `ci` dependency group (ansible-lint, yamllint), add `[tool.coverage.run]` section, update `addopts` if needed
 - `AGENTS.md` — add CI section
 - `tests/conftest.py` — ensure fixtures are robust for CI env (no assumption of writable `/tmp` beyond `tmp_path`)
 - `tests/test_stt.py` — verify all imports are mocked, zero real model access
@@ -163,7 +193,6 @@ The following stale references from the prior Comadre TTS project remain in the 
 ## New Files
 
 - `scripts/ci-local.sh` — shell script to reproduce CI locally
-- `.coveragerc` — coverage configuration (or inline in `pyproject.toml`)
 - `tests/test_non_regression/test_fernet_decrypt_invariant.py` — new non-regression test for single-Fernet invariant
 - `tests/test_non_regression/test_no_raw_os_environ.py` — new non-regression test for no-raw-os.environ invariant
 - `docs/ci-runbook.md` — CI runbook and troubleshooting guide
