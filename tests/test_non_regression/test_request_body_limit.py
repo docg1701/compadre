@@ -3,7 +3,7 @@
 Policy mirrors AWS API Gateway / Cloudflare / nginx ``client_max_body_size``:
 1. Any ``Transfer-Encoding`` on ``@api`` → 411 (force Content-Length).
 2. ``Content-Length`` non-canonical (non-numeric / >10 digits) → 400.
-3. Valid ``Content-Length > 1 MiB`` → 413.
+3. Valid ``Content-Length > 1 MiB`` → 413 (``> 25 MiB`` on upload path).
 4. Write method without framing headers → 411.
 5. Otherwise → proxy to upstream.
 """
@@ -23,7 +23,9 @@ _ONE_MB: int = 1024 * 1024
 _TWO_MB: int = 2 * _ONE_MB
 _SUB_BOUNDARY: int = _ONE_MB - 1024
 _STUB_SIGNATURE: bytes = b"non-regression-stub"
-_API_PATHS: tuple[str, ...] = ("/v1/audio/transcriptions", "/health")
+_API_PATHS_1MIB: tuple[str, ...] = ("/health",)
+_UPLOAD_PATH: str = "/v1/audio/transcriptions"
+_25_MIB: int = 25 * 1024 * 1024
 _OCTET_STREAM: dict[str, str] = {"Content-Type": "application/octet-stream"}
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -33,6 +35,7 @@ _CADDYFILE_NO_LANDING: Path = _REPO_ROOT / "deploy" / "caddy" / "Caddyfile-no-la
 _EXPECTED_MATCHERS: tuple[str, ...] = (
     "@api_has_te",
     "@api_malformed_cl",
+    "@api_oversized_upload",
     "@api_oversized_body",
     "@api_missing_cl",
 )
@@ -81,7 +84,7 @@ def _send_raw_https(raw_request: bytes) -> tuple[int, bytes]:
 
 
 @pytest.mark.non_regression
-@pytest.mark.parametrize("path", _API_PATHS)
+@pytest.mark.parametrize("path", _API_PATHS_1MIB)
 def test_oversized_post_is_rejected_with_413(
     probe_client: httpx.Client, path: str
 ) -> None:
@@ -91,6 +94,20 @@ def test_oversized_post_is_rejected_with_413(
     resp = probe_client.post(path, content=payload, headers=_OCTET_STREAM)
     assert resp.status_code == 413, (
         f"FR49: oversized POST {path} expected 413, got {resp.status_code}"
+    )
+    assert _STUB_SIGNATURE not in resp.content
+
+
+@pytest.mark.non_regression
+def test_oversized_upload_is_rejected_with_413(
+    probe_client: httpx.Client,
+) -> None:
+    """26 MiB POST to upload path → 413 from ``@api_oversized_upload``,
+    body does NOT reach upstream."""
+    payload = b"x" * (_25_MIB + _ONE_MB)
+    resp = probe_client.post(_UPLOAD_PATH, content=payload, headers=_OCTET_STREAM)
+    assert resp.status_code == 413, (
+        f"FR49: oversized upload expected 413, got {resp.status_code}"
     )
     assert _STUB_SIGNATURE not in resp.content
 
@@ -227,6 +244,6 @@ def test_caddyfile_variants_share_the_same_body_framing_policy() -> None:
     )
     with_thresholds = set(threshold_pattern.findall(with_landing))
     no_thresholds = set(threshold_pattern.findall(no_landing))
-    assert with_thresholds == no_thresholds == {"1048576"}, (
+    assert with_thresholds == no_thresholds == {"1048576", "26214400"}, (
         f"oversize threshold drift: with={with_thresholds}, no={no_thresholds}"
     )

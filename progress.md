@@ -1,3 +1,43 @@
+# Progress — Plan 07 Review
+
+## Review
+
+### Correct (already good)
+- **`.github/workflows/ci.yml`** is valid YAML and correctly structured — 7 parallel jobs with appropriate timeouts, dependency groups (`lint`, `test`, `type-check`, `ci`), and the `coverage` job correctly declares `needs: [test-fast]`.
+- **`tests/conftest.py`** properly mocks `ensure_whisper_model` via `monkeypatch.setattr("compadre.main.ensure_whisper_model", lambda **kwargs: None)` — this patches the module-local binding so the lifespan never downloads the ~1.5 GB model.
+- **`tests/test_non_regression/test_fernet_decrypt_invariant.py`** is correct — grep-scans `src/compadre/` for `fernet.decrypt`, filters `# scan-allow[single-fernet-decrypt]` comments, and asserts exactly one hit in `keys/crypto.py`. Uses `subprocess.run` with returncode 0/1 handling.
+- **`tests/test_non_regression/test_no_raw_os_environ.py`** is correct — AST visitor scans for `os.environ[...]`, `os.getenv(...)`, and `from os import environ`, respects `# scan-allow[no-raw-os-environ]` comments, and exempts `config.py` and `download.py` by design. Imports `allowlisted_lines` and `safe_parse` from `_scan_common.py`.
+- **`pyproject.toml`** coverage config is correct: `source = ["src/compadre"]`, `branch = true`, 60 % threshold. The `ci` dependency group contains `ansible-lint` and `yamllint`. The `dev` group correctly includes all subgroups.
+- **`docs/ci-runbook.md`** is accurate and complete — mirrors the CI job table, marker contract, grep invariant, dependency groups, and troubleshooting sections. All command snippets are copy-paste runnable.
+- **`AGENTS.md`** CI section matches the actual `ci.yml` — job names, commands, Docker needs, non-regression marker contract, and local reproduction commands are all consistent.
+- **`scripts/ci-local.sh`** is functional — `set -euo pipefail`, pre-flight binary checks, single-command dispatch, colored output, and correct `uv` invocation patterns. All 6 subcommands (`lint`, `type-check`, `test-fast`, `ansible-lint`, `docker-build`, `coverage`) are implemented.
+- **Stale TTS refs are fixed** — `grep -ri 'tts-service\|VoiceNotFoundError\|ComadreError' src/ deploy/` returns zero hits in production code. The only remaining "TTS" references are in historical plan documents (`docs/plan/`) and one intentional fixture file (`tests/test_non_regression/fixtures/no_raw_httpexception/compadre_error_only.py`) that creates a fake `VoiceNotFoundError` class to test the AST scanner.
+- **All verification commands pass:**
+  - `ruff check .` ✅
+  - `ruff format --check .` ✅
+  - `mypy src/` ✅
+  - `pytest -m "not slow and not non_regression"` → 252 passed ✅
+  - `pytest -m non_regression tests/test_non_regression/` → 44 passed ✅
+  - `coverage report --fail-under=60` → 76 % ✅
+
+### Fixed (issue and resolution)
+- **Issue:** Two non-regression tests were failing pre-existing drift unrelated to Plan 07 itself:
+  1. `test_oversized_post_is_rejected_with_413[/v1/audio/transcriptions]` expected 413 for a 2 MiB POST, but the Caddyfile was updated in an earlier story to allow up to 25 MiB on the upload path (`@api_oversized_upload`).
+  2. `test_caddyfile_variants_share_the_same_body_framing_policy` expected a single threshold (`1048576`), but both Caddyfiles now declare two thresholds (`1048576` for generic API paths and `26214400` for uploads).
+  **Resolution:** Updated the test module:
+  - Split `_API_PATHS` into `_API_PATHS_1MIB` (`/health` only) and added `_UPLOAD_PATH` + `_25_MIB` constants.
+  - Added `test_oversized_upload_is_rejected_with_413` that sends 26 MiB to the upload path and asserts 413.
+  - Updated `_EXPECTED_MATCHERS` to include `@api_oversized_upload` for Caddyfile parity.
+  - Updated the threshold assertion to expect `{"1048576", "26214400"}`.
+  - Updated the module docstring to note the upload-path exception.
+
+### Note (observations / follow-up)
+- **`tests/test_non_regression/README.md:94`** contains the phrase "not the TTS pipeline" in the stubbing-strategy explanation. This is historical context (explaining why a stub upstream suffices) and is acceptable — it is not a stale production reference.
+- **No code changes were required for Plan 07's own scope** (CI pipeline restructuring). The only edits were to the non-regression test that drifted from a prior Caddyfile change.
+- **Plan 07 is complete.**
+
+---
+
 # Progress — Plan 05 Review
 
 ## Review
