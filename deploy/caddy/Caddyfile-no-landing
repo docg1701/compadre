@@ -44,9 +44,22 @@
 		respond `{"error":{"message":"Malformed Content-Length header","type":"invalid_request_error","hint":"Send a single non-negative integer Content-Length within 1-10 digits."}}` 400
 	}
 
-	# 3. Valid Content-Length > 1 MiB → 413.
+	# 3a. Valid Content-Length > 25 MiB on transcription upload → 413.
+	# Audio files are routinely 0.5–20 MB; the app limit is 25 MB.
+	@api_oversized_upload {
+		path /v1/audio/transcriptions
+		header Content-Length *
+		expression `{http.request.header.content-length}.matches('^[0-9]{1,10}$') && int({http.request.header.content-length}) > 26214400`
+	}
+	handle @api_oversized_upload {
+		header Content-Type "application/json"
+		respond `{"error":{"message":"Payload too large","type":"invalid_request_error","hint":"Maximum request body size for audio uploads is 25 MiB."}}` 413
+	}
+
+	# 3b. Valid Content-Length > 1 MiB on other API paths → 413.
 	@api_oversized_body {
 		path /v1/* /health
+		not path /v1/audio/transcriptions
 		header Content-Length *
 		expression `{http.request.header.content-length}.matches('^[0-9]{1,10}$') && int({http.request.header.content-length}) > 1048576`
 	}
