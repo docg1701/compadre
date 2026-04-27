@@ -1,3 +1,37 @@
+# Progress — Plan 03 Review
+
+## Review
+
+### Correct (already good)
+- `compose.yaml` — Whisper/HF env vars correctly use unprefixed names (`WHISPER_MODEL_SIZE`, `HF_HOME`, etc.) matching `config.py::Settings` (no `env_prefix`).
+- `deploy/ansible/inventory/production.yml` — TTS vars fully removed, STT vars added, IP set to `10.10.10.208`, `repo_url` and `billing_timezone` configured.
+- `deploy/ansible/inventory/production.yml.example` / `oracle.yml` / `oracle.yml.example` — All TTS vars removed, STT vars present with comments.
+- `deploy/ansible/playbooks/bootstrap.yml` — No TTS references, no "Comadre" typos, correct STT curl example in summary, `.env` template uses unprefixed names, audio-cleanup cron removed.
+- `deploy/ansible/playbooks/update.yml` — No TTS references, no "Comadre" typos, summary mentions correct volumes (`models, registry`).
+- `deploy/ansible/playbooks/deploy-models.yml` — Fully rewritten for Whisper Mode B (one-shot download trigger via `docker compose run`), includes future-work Mode A comment block.
+- `deploy/ansible/playbooks/health.yml` — Zero Qwen3/kokoro/voice references, zero "Comadre" typos, register var renamed to `compadre_containers`, audio volume diagnostics removed, summary uses `Model count`.
+- `deploy/ansible/playbooks/cleanup.yml` — Zero "Comadre" typos, daily-restart and audio-cleanup cron removals removed, docker.list belt-and-braces fix present.
+- `deploy/ansible/playbooks/backup-keys.yml` / `restore-keys.yml` — Zero "Comadre" typos, register vars renamed to `compadre_service_ps`.
+- `deploy/ansible/scripts/` — `backup-keys.sh`, `restore-stage.sh`, `restore-swap.sh` comments all reference `compadre-stt`.
+- `deploy/caddy/Caddyfile` — Comment correctly reads "API paths → compadre-stt".
+- `deploy/caddy/Caddyfile-no-landing` — Upstream correctly set to `name compadre-stt`.
+- `docs/configuration-reference.md` — Env-var table uses exact unprefixed names; zero `COMPADRE_WHISPER_` / `COMPADRE_HF_HOME` hits.
+- `docs/deployment-guide.md` — Fresh-deploy runbook documented with prerequisites, secrets generation, inventory config, bootstrap command, health verification, backup/restore round-trip, rollback procedure, and idempotency notes.
+- Grep invariant verified: zero hits for `kokoro`, `qwen3`, `espeak`, `tts-service`, `/v1/audio/speech` in `deploy/ansible/`, `deploy/caddy/`, and `compose.yaml`.
+
+### Fixed (issue and resolution)
+- **Issue:** `docs/deployment-guide.md:487` still referenced `COMPADRE_HF_HOME` (prefixed name never read by `config.py`).
+  **Resolution:** Changed to `HF_HOME`.
+- **Issue:** `tests/test_main_lifespan.py:47` set `COMPADRE_HF_HOME` in the test fixture, but `config.py` has no `env_prefix` so the variable was silently ignored.
+  **Resolution:** Changed to `HF_HOME` so the test fixture matches the actual env var the app consumes.
+
+### Note (observations / follow-up)
+- **`docs/api-architecture.md`** and **`docs/api-reference.md`** still contain `COMPADRE_WHISPER_*` and `COMPADRE_HF_HOME` prefixed names (e.g. `COMPADRE_WHISPER_CPU_THREADS`, `COMPADRE_HF_HOME`). These were not in Plan 03's explicit file list and were missed by Plan 01's acceptance criteria (which focused on TTS content removal, not env-var prefix correctness). A follow-up patch should sweep these two docs for the same unprefixed names used in `configuration-reference.md`.
+- **`AGENTS.md:34`** mentions `COMPADRE_WHISPER_THREADS` — also incorrect per `config.py` but outside Plan 03 scope.
+- **Plan 03 completion status:** All 18 tasks from the plan are implemented in code. The inventory, compose file, all 7 playbooks, scripts, Caddyfiles, and the two specified docs are correct. Plan 03 is **complete** pending the optional follow-up doc sweep noted above.
+
+---
+
 # Progress — Plan 01 Review
 
 ## Review

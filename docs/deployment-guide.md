@@ -484,7 +484,7 @@ The faster-whisper model (~1.5 GB, int8 quantized) auto-downloads from HuggingFa
 
 **Auto-download (default):**
 
-On first startup, the service calls `snapshot_download()` to fetch `Systran/faster-whisper-large-v3-turbo` into `COMPADRE_HF_HOME`. This requires outbound HTTPS to `huggingface.co`. Download time is typically 1-2 minutes on a 100 Mbps link.
+On first startup, the service calls `snapshot_download()` to fetch `Systran/faster-whisper-large-v3-turbo` into `HF_HOME`. This requires outbound HTTPS to `huggingface.co`. Download time is typically 1-2 minutes on a 100 Mbps link.
 
 **Pre-seed for air-gapped deploys:**
 

@@ -44,7 +44,7 @@ def registry_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     db_path = tmp_path / "registry.db"
     monkeypatch.setenv("KEY_REGISTRY_DB_PATH", str(db_path))
     monkeypatch.setenv("KEY_REGISTRY_ENCRYPTION_KEY", Fernet.generate_key().decode())
-    monkeypatch.setenv("COMPADRE_HF_HOME", str(tmp_path / "models"))
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "models"))
     get_settings.cache_clear()
     return db_path
 
