@@ -47,14 +47,14 @@ dev = [
     { include-group = "security" },
     "jiwer>=4.0.0",
 ]
-lint = ["ruff>=0.9", "pre-commit>=4.0"]
+lint = ["ruff>=0.9", "pre-commit>=4.0", "mypy>=1.13"]
 test = ["pytest>=8.3", "pytest-asyncio>=0.25", "httpx>=0.28", "coverage>=7.6"]
 type-check = [
     "mypy>=1.14",
     "types-pyyaml>=6.0.12.20260408",
 ]
 security = ["bandit>=1.8"]
-ci = ["ansible-lint>=24", "yamllint>=1.35"]
+ci = ["ansible-lint>=24", "yamllint>=1.35", "ansible-core>=2.16"]
 
 [tool.ruff]
 target-version = "py312"

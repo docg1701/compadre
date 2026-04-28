@@ -315,6 +315,7 @@ dependencies = [
 
 [package.dev-dependencies]
 ci = [
+    { name = "ansible-core" },
     { name = "ansible-lint" },
     { name = "yamllint" },
 ]
@@ -331,6 +332,7 @@ dev = [
     { name = "types-pyyaml" },
 ]
 lint = [
+    { name = "mypy" },
     { name = "pre-commit" },
     { name = "ruff" },
 ]
@@ -368,6 +370,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 ci = [
+    { name = "ansible-core", specifier = ">=2.16" },
     { name = "ansible-lint", specifier = ">=24" },
     { name = "yamllint", specifier = ">=1.35" },
 ]
@@ -376,6 +379,7 @@ dev = [
     { name = "coverage", specifier = ">=7.6" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "jiwer", specifier = ">=4.0.0" },
+    { name = "mypy", specifier = ">=1.13" },
     { name = "mypy", specifier = ">=1.14" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pytest", specifier = ">=8.3" },
@@ -384,6 +388,7 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20260408" },
 ]
 lint = [
+    { name = "mypy", specifier = ">=1.13" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "ruff", specifier = ">=0.9" },
 ]

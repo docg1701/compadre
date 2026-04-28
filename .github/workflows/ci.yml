@@ -152,6 +152,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --group ci
 
+      - name: Install Ansible collections
+        run: |
+          uv run ansible-galaxy collection install -r deploy/ansible/requirements.yml
+
       - name: ansible-lint
         run: uv run ansible-lint deploy/ansible/playbooks/
 
