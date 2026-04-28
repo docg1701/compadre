@@ -1,6 +1,8 @@
+# Rate Limiting
+
 > **Last updated:** 2026-04-26
 
-# Rate Limiting
+# How Rate Limiting Works
 
 Compadre enforces one rate-limit bucket per API key. The per-key cap lives in the registry (`api_key.rate_limit_rpm`) and is consulted on every authenticated request. There is no per-IP rate limit at the application layer and no global toggle — the registry row is authoritative.
 

@@ -23,13 +23,19 @@ The Compadre CI pipeline runs on every push and pull request to `master`/`main`.
 #### lint
 
 Runs three checks sequentially:
+
 - `ruff check .` — lint rules (E, F, I, UP, B, SIM, N, C4, PTH, RUF)
+
 - `ruff format --check .` — formatting consistency (line-length 88)
+
 - `pre-commit run --all-files` — hadolint, yamllint, shellcheck, markdownlint
 
 Common failures:
+
 - Line too long (>88 chars) → break the string across lines
+
 - Ambiguous unicode character (RUF001) → replace with ASCII equivalent
+
 - hadolint `DL3008` → pin apt package versions in Dockerfile
 
 #### type-check
@@ -37,13 +43,17 @@ Common failures:
 Runs `mypy src/` in strict mode. Failures typically mean a type annotation is missing or a third-party package lacks stubs.
 
 Common failures:
+
 - `Missing type stubs for package X` → add to `[[tool.mypy.overrides]]` with `ignore_missing_imports = true`
+
 - `Argument has incompatible type` → fix the annotation or the call site
 
 #### test-fast
 
 Runs all unit and integration tests that do NOT require the real Whisper model or Docker containers. Uses `-m "not slow and not non_regression"` to exclude:
+
 - Model-dependent tests (marker `slow` — currently unused, placeholder)
+
 - Non-regression tests (marker `non_regression` — Docker/security scans)
 
 The `ensure_whisper_model` function is monkeypatched in `conftest.py` so the model is never downloaded during these tests.
@@ -51,17 +61,25 @@ The `ensure_whisper_model` function is monkeypatched in `conftest.py` so the mod
 #### test-non-regression
 
 Runs the CI non-regression suite. These tests enforce architecture contracts:
+
 - Security header assertions (Caddy reverse proxy surface)
+
 - Request body limits
+
 - Rate limiter wiring
+
 - Static scans: no raw HTTPException, no raw os.environ, single-Fernet-decrypt, timing-safe compare, SQL injection patterns
+
 - Grep invariant: all `@pytest.mark.non_regression` tests live in `tests/test_non_regression/`
 
 Pre-pulls `caddy:2-alpine` and `nginx:alpine` Docker images to avoid DockerHub throttling during the test run.
 
 Common failures:
+
 - Docker daemon not available → ensure GitHub Actions runner has Docker
+
 - DockerHub rate limit → the cache step should mitigate; retry after 6 hours if persistent
+
 - Non-regression test outside `test_non_regression/` → move the test or remove the marker
 
 #### ansible-lint
@@ -69,8 +87,11 @@ Common failures:
 Lints Ansible playbooks in `deploy/ansible/playbooks/` with `ansible-lint` and validates YAML syntax with `yamllint`. No collections are installed (lint-only).
 
 Common failures:
+
 - `fqcn-builtins` → use FQCN (e.g., `ansible.builtin.file`)
+
 - `name` missing → add a `name:` to every task
+
 - `yamllint` line-length → break long lines or use `>` folding
 
 #### docker-build
@@ -78,7 +99,9 @@ Common failures:
 Verifies the Docker image compiles using `docker/build-push-action@v6` with `push: false`. Uses GitHub Actions cache (`type=gha`) for layer caching.
 
 Common failures:
+
 - `COPY` source missing → check path relative to build context
+
 - `apt-get install` fails → pin package versions (hadolint DL3008)
 
 #### coverage
@@ -86,7 +109,9 @@ Common failures:
 Runs the same test suite as `test-fast` with `coverage.py` and enforces a 60% threshold. Depends on `test-fast` (runs after, not blocking). Uploads `.coverage` as a build artifact.
 
 Common failures:
+
 - Coverage below 60% → add tests for untested code paths
+
 - Coverage run fails → same debugging as test-fast
 
 ## Reproducing Locally
@@ -100,8 +125,11 @@ bash scripts/ci-local.sh test-fast # just fast tests
 ```
 
 Requirements:
+
 - `uv` (Python package manager)
+
 - `ffmpeg` (audio decoding — install via apt/brew)
+
 - `docker` (optional, needed for `docker-build` and `test-non-regression` steps)
 
 ## Marker Contract

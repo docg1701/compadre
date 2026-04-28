@@ -383,7 +383,9 @@
 
     - name: "[FS] Enforce 0700 on registry parent directory"
       ansible.builtin.command:
-        cmd: docker compose -f ~/compadre/compose.yaml exec -T compadre-stt chmod 700 {{ key_registry_db_path | dirname }}
+        cmd: >-
+          docker compose -f ~/compadre/compose.yaml exec -T
+          compadre-stt chmod 700 {{ key_registry_db_path | dirname }}
       changed_when: false
 
     # =========================================================================
@@ -573,7 +575,7 @@
           ============================================
 
   handlers:
-    - name: restart sshd
+    - name: Restart sshd
       become: true
       ansible.builtin.service:
         name: ssh

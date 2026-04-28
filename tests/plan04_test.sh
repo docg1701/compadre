@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2015
 # Partial automated test suite for Plan 04 — Key Management Exhaustive Testing.
 #
 # WARNING: This script assumes a pre-existing test state (customers, keys)
@@ -10,7 +11,7 @@
 # The script covers Tasks 3 (Key Verbs continuation), 4 (Billing), 5 (LGPD),
 # 6 (System), 7 (Exit Codes), 8 (Invariants), and 9 (Concurrent).
 set +e
-cd ~/compadre
+cd ~/compadre || exit 1
 CE="docker compose exec -T compadre-stt"
 DB="/var/lib/compadre/registry.db"
 
@@ -25,7 +26,6 @@ C2="cust_01kq8dnqv6fkp5f1brfvse6hv9"
 K1NP="AgTojNuG"
 K2P="hbU4Vcg0"
 KEY1_NEW="cmpd_live_AgTojNuGhupCd9giAcCxfJFI0q3b6MZjhqJrLiZdWRc"
-KEY2="cmpd_live_hbU4Vcg0xIz22ZyrbKBFHie5vLmJ-ckk2mrkBYdTkmI"
 
 echo "============================================"
 echo "TASK 3: Key Verbs (cont.)"
@@ -342,7 +342,8 @@ echo "--- 9.1 issue-key during traffic ---"
 $CE compadre-keys reactivate "$K1NP" >/dev/null 2>&1
 export KEY1_NEW
 # Issue a new test key during background health requests (which don't need auth)
-for i in $(seq 1 20); do
+# shellcheck disable=SC2034
+for _ in $(seq 1 20); do
   curl -k -s -o /dev/null https://10.10.10.208/health &
 done
 $CE compadre-keys issue-key --customer "$C2" --rpm 30 --billing-mode complimentary --notes "concurrent test" >/dev/null 2>&1
@@ -354,7 +355,8 @@ echo "--- 9.2 rotate-key during traffic ---"
 # Get the new key prefix
 CONC_PFX=$($CE sqlite3 "$DB" "SELECT key_prefix FROM api_key WHERE customer_id='$C2' AND status='active' AND notes='concurrent test' ORDER BY created_at DESC LIMIT 1;")
 echo "  Concurrent key: $CONC_PFX"
-for i in $(seq 1 10); do
+# shellcheck disable=SC2034
+for _ in $(seq 1 10); do
   curl -k -s -o /dev/null https://10.10.10.208/health &
 done
 $CE compadre-keys rotate-key "$CONC_PFX" --yes >/dev/null 2>&1

@@ -10,7 +10,7 @@ All requests to `/v1/audio/transcriptions` require a Bearer token in the `Author
 
 ```text
 Authorization: Bearer cmpd_live_<plaintext-issued-once>
-```
+```text
 
 Keys are issued with `compadre-keys issue-key`. The plaintext is displayed once at issuance and never again — the registry stores only a SHA-256 hash and an 8-character display prefix. See [monetization.md](monetization.md) for the full lifecycle.
 
@@ -44,8 +44,7 @@ Transcribe audio to text.
 ```
 auth → rate-limit → acquire lock → ffmpeg decode (16 kHz mono PCM s16le WAV)
   → faster-whisper transcribe → format output → return
-```
-
+```text
 **Engine parameters (non-configurable):**
 
 | Parameter | Value | Rationale |
@@ -74,8 +73,7 @@ Exceeding either limit returns HTTP 400.
 
 ```text
 Bom dia, como posso ajudar?
-```
-
+```text
 #### `response_format=json`
 
 **Status:** 200 OK  
@@ -85,8 +83,7 @@ Bom dia, como posso ajudar?
 {
   "text": "Bom dia, como posso ajudar?"
 }
-```
-
+```text
 #### `response_format=verbose_json`
 
 **Status:** 200 OK  
@@ -112,8 +109,7 @@ Bom dia, como posso ajudar?
     }
   ]
 }
-```
-
+```text
 #### `response_format=srt`
 
 **Status:** 200 OK  
@@ -123,8 +119,7 @@ Bom dia, como posso ajudar?
 1
 00:00:00,000 --> 00:00:03,240
 Bom dia, como posso ajudar?
-```
-
+```text
 #### `response_format=vtt`
 
 **Status:** 200 OK  
@@ -135,8 +130,7 @@ WEBVTT
 
 00:00:00.000 --> 00:00:03.240
 Bom dia, como posso ajudar?
-```
-
+```text
 ### Error Responses
 
 All errors return JSON with this structure:
@@ -149,8 +143,7 @@ All errors return JSON with this structure:
     "hint": "actionable recovery instructions"
   }
 }
-```
-
+```text
 **400 -- Invalid Request:**
 
 Missing file:
@@ -163,7 +156,7 @@ Missing file:
     "hint": "Upload an audio file using multipart/form-data with field name 'file'."
   }
 }
-```
+```text
 
 Unsupported format:
 
@@ -175,7 +168,7 @@ Unsupported format:
     "hint": "Supported formats: OPUS (OGG), MP3, M4A, WAV, WebM."
   }
 }
-```
+```text
 
 File too large:
 
@@ -187,7 +180,7 @@ File too large:
     "hint": "Compress the audio or split into shorter segments."
   }
 }
-```
+```text
 
 Audio too long:
 
@@ -199,8 +192,7 @@ Audio too long:
     "hint": "Split the audio into segments under 10 minutes."
   }
 }
-```
-
+```text
 **401 -- Authentication Error:**
 
 Missing or malformed `Authorization` header:
@@ -213,7 +205,7 @@ Missing or malformed `Authorization` header:
     "hint": "Send 'Authorization: Bearer <plaintext>' using a key issued via compadre-keys issue-key."
   }
 }
-```
+```text
 
 Unknown API key (not present in the registry, or a token that never existed):
 
@@ -225,7 +217,7 @@ Unknown API key (not present in the registry, or a token that never existed):
     "hint": "The key was not found in the registry. Contact your Compadre operator for a fresh key."
   }
 }
-```
+```text
 
 A 401 is also returned when a key is suspended, revoked, or past `paid_until`. The `hint` field echoes the operator-contact string configured via `OPERATOR_CONTACT_HINT`.
 
@@ -239,8 +231,7 @@ A 401 is also returned when a key is suspended, revoked, or past `paid_until`. T
     "hint": "Check the URL. Valid endpoints: POST /v1/audio/transcriptions, GET /health."
   }
 }
-```
-
+```text
 **405 -- Method Not Allowed:**
 
 ```json
@@ -251,8 +242,7 @@ A 401 is also returned when a key is suspended, revoked, or past `paid_until`. T
     "hint": "Use POST for /v1/audio/transcriptions and GET for /health."
   }
 }
-```
-
+```text
 **429 -- Rate Limit Exceeded:**
 
 ```json
@@ -263,7 +253,7 @@ A 401 is also returned when a key is suspended, revoked, or past `paid_until`. T
     "hint": "Too many requests. Try again in 37 seconds."
   }
 }
-```
+```text
 
 The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers. `Retry-After` (and the matching hint) are derived from `X-RateLimit-Reset - now`, so clients can back off accurately. The same three `X-RateLimit-*` headers are also emitted on allowed responses. Rate-limiting is per API key, not per IP: each key's `rate_limit_rpm` (set at `compadre-keys issue-key --rpm <n>` and adjustable via `update-key --rpm <n>`) determines the budget. The bucket is keyed on the registry's `key_id`, so it survives `compadre-keys rotate-key` and is independent across two keys issued to the same customer. The STT engine is never invoked when a request hits the rate limit. See [rate-limiting.md](rate-limiting.md) for the algorithm and multi-replica caveat. `/health` has no application-layer rate limit.
 
@@ -277,8 +267,7 @@ The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-L
     "hint": "Check server logs for the full traceback. The STT model may need restarting."
   }
 }
-```
-
+```text
 **503 -- Service Unavailable:**
 
 ```json
@@ -289,7 +278,7 @@ The 429 response carries a `Retry-After: <N>` header and matching `X-RateLimit-L
     "hint": "The service is still loading models. Retry in 30 seconds."
   }
 }
-```
+```text
 
 The 503 response includes a `Retry-After` header with the recommended wait time in seconds.
 
@@ -314,8 +303,7 @@ Returns service health status. No authentication required.
   "memory_mb": 2100,
   "version": "1.0.0"
 }
-```
-
+```text
 ### Warming Up Response (503)
 
 Returned while the model is still loading after startup:
@@ -330,8 +318,7 @@ Returned while the model is still loading after startup:
   "memory_mb": 800,
   "version": "1.0.0"
 }
-```
-
+```text
 ### Status Values
 
 | Status | HTTP Code | Meaning |
@@ -348,8 +335,7 @@ curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
   -F "file=@audio.opus" \
   -F "response_format=text"
-```
-
+```text
 **Transcription request (verbose JSON with timestamps):**
 
 ```bash
@@ -357,8 +343,7 @@ curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
   -F "file=@audio.opus" \
   -F "response_format=verbose_json"
-```
-
+```text
 **Transcription request (SRT subtitles):**
 
 ```bash
@@ -366,8 +351,7 @@ curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_YOUR_PLAINTEXT" \
   -F "file=@audio.opus" \
   -F "response_format=srt"
-```
-
+```text
 **Language override (auto-detect omitted, force Spanish):**
 
 ```bash
@@ -376,14 +360,13 @@ curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -F "file=@audio.opus" \
   -F "language=es" \
   -F "response_format=json"
-```
-
+```text
 **Missing authentication (error example):**
 
 ```bash
 curl -k -s https://YOUR_VPS_DOMAIN/v1/audio/transcriptions \
   -F "file=@audio.opus"
-```
+```text
 
 Response (401):
 
@@ -395,10 +378,9 @@ Response (401):
     "hint": "Send 'Authorization: Bearer <plaintext>' using a key issued via compadre-keys issue-key."
   }
 }
-```
-
+```text
 **Health check:**
 
 ```bash
 curl -k -s https://YOUR_VPS_DOMAIN/health
-```
+```text

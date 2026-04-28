@@ -11,17 +11,27 @@ Follow these steps to deploy Compadre on a clean VPS. Assume zero pre-installed 
 ### 1. Prerequisites Checklist
 
 **Control machine** (your laptop/workstation):
+
 - [ ] Ansible 2.14+ installed (`ansible --version`)
+
 - [ ] `ansible-galaxy collection install -r deploy/ansible/requirements.yml` run
+
 - [ ] Git repo cloned at `~/dev/compadre` (or equivalent)
+
 - [ ] SSH key that can reach the VPS as the ansible user
+
 - [ ] SSH agent running with GitHub key loaded (`ssh-add -l` shows your key) — needed for the git clone step during bootstrap. Alternatively, copy an SSH key to the VPS at `~/.ssh/id_ed25519` before running bootstrap.
+
 - [ ] `python3` with `cryptography` and `secrets` (stdlib) available
 
 **VPS:**
+
 - [ ] Debian 12+ or Ubuntu 22.04+
+
 - [ ] SSH key access configured for the ansible user
+
 - [ ] User has passwordless sudo OR the sudo password is known
+
 - [ ] Ports 22, 80, 443 reachable from the public internet
 
 ### 2. Generate Secrets
@@ -520,6 +530,7 @@ Leave `DOMAIN` as `localhost` (default). Caddy generates a self-signed certifica
 **Configuration:** The Caddyfile is at `deploy/caddy/Caddyfile`. It uses handle-based routing to serve two concerns from a single domain:
 
 - **API paths** (`/v1/*`, `/health`) are reverse-proxied to `compadre-stt:8000` via Docker internal DNS.
+
 - **All other paths** serve a static landing page from `/srv/www` (the `deploy/landing/` directory bind-mounted in `compose.yaml`).
 
 For multi-replica deployments, the Caddyfile uses the `dynamic a` upstream resolver to re-query Docker DNS every 5 seconds and load-balance across all healthy replica IPs with the `least_conn` policy (queue-depth-aware: routes each request to the replica with the fewest active connections, which equals the fewest queued+in-flight STT jobs in Compadre's single-FIFO-lock architecture). Plain `reverse_proxy host:port` resolves DNS only once at startup and would pin all traffic to a single replica — `dynamic a` is required.
@@ -531,6 +542,7 @@ A variant `deploy/caddy/Caddyfile-no-landing` exists for deployments where the l
 The default Caddyfile serves a self-contained HTML page at the root URL that lets anyone with a valid API key try Compadre from a browser. Control this with the `landing_enabled` ansible variable:
 
 - **`landing_enabled: true`** (default): Uses the standard `Caddyfile` with handle-based routing. The landing page is served at `/`, API endpoints at their usual paths.
+
 - **`landing_enabled: false`**: Uses `Caddyfile-no-landing`, which proxies all traffic directly to the STT service. Useful for internal/private deployments where a public-facing page is not wanted.
 
 The API endpoints (`/v1/*`, `/health`) are always available regardless of the `landing_enabled` setting.
@@ -750,15 +762,21 @@ The `compadre-keys health --format json` exit-7-on-warn/fail contract is the bri
 **Recommended cadences.** Pick whichever matches your existing alerting rhythm — the playbook's value is the exit code, not any specific integration:
 
 - **Nightly cron + log aggregator** — `30 3 * * * cd ~/compadre && ansible-playbook deploy/ansible/playbooks/health.yml -i deploy/ansible/inventory/production.yml 2>&1 | logger -t compadre-health`. Pattern-match on `ASSERTION FAILED` in your log alerting.
+
 - **Per-PR CI** — Story 4.5x will boot a docker-compose-spun-up Compadre and run `health.yml` against it on every pull request; treat the exit code as a build gate.
+
 - **Weekly hands-on audit** — SSH and run the playbook before scheduled maintenance windows. The `success_msg` strings document the green state for the change-control record.
+
 - **Post-incident verification** — the LGPD breach runbook (Story 4.6) will cite `health.yml` as the "after restore-keys.yml, before re-opening to traffic" gate.
 
 **Common failure modes and fixes** (the playbook's own `fail_msg` strings are authoritative — this is the recap):
 
 - **`DB file mode is 600` failed** → `docker compose exec compadre-stt chmod 600 /var/lib/compadre/registry.db`.
+
 - **`compadre-keys-backup cron is installed` failed** → `ansible-playbook bootstrap.yml -i inventory/production.yml -e "ansible_become_password=…"`.
+
 - **`UFW rules match the expected set` failed** → `sudo ufw status numbered && sudo ufw delete <number>` for the unexpected rule.
+
 - **`compadre-keys health is_healthy` failed** → run `docker compose exec compadre-stt compadre-keys health` for the table view; act on whichever row is yellow/red.
 
 ## Firewall (UFW)
@@ -884,6 +902,9 @@ Memory breakdown per replica: Python process with faster-whisper loaded ~2 GB pe
 ### Caveats
 
 - **Rate-limit buckets are per-instance.** With N replicas the effective RPM for a key is `N × rate_limit_rpm` because each replica's `limits` in-memory storage runs its own moving window. The default deploy is `replicas: 1`, so this is dormant; if you scale up, either (a) divide the intended per-key RPM by the replica count when setting `compadre-keys update-key --rpm`, or (b) accept the multiplied limit as acceptable elasticity. Shared-storage rate-limiting (Redis/SQLite) is a candidate future story. See [rate-limiting.md](rate-limiting.md).
+
 - **Queue depth is per-instance.** The `/health` endpoint reports the queue depth of whichever replica handles the request. For cluster-wide monitoring, check all replicas or use centralized logging.
+
 - **First deployment with replicas > 1** should start with `replicas: 1` to download and cache models in the shared volume. After models are cached, scale up. Concurrent downloads from multiple replicas to the same temp file can corrupt the model.
+
 - **Caddy blocks on all replicas healthy.** The `depends_on: condition: service_healthy` in compose.yaml means Caddy waits for every replica to pass its healthcheck before starting. If any single replica fails (e.g., OOM during concurrent model loading), Caddy never starts and the entire service is unreachable. For multi-replica deployments, consider changing to `condition: service_started`.

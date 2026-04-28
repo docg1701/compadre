@@ -23,8 +23,7 @@ curl -k -s https://stt.example.com/v1/audio/transcriptions \
   -H "Authorization: Bearer cmpd_live_<plaintext>" \
   -F "file=@audio.opus" \
   -F "response_format=text"
-```
-
+```text
 #### Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -40,8 +39,7 @@ curl -k -s https://stt.example.com/v1/audio/transcriptions \
 ```
 auth → rate-limit → acquire lock → ffmpeg decode (16 kHz mono PCM s16le WAV)
   → faster-whisper transcribe → format output → return
-```
-
+```text
 **Engine parameters (non-configurable):**
 
 | Parameter | Value | Rationale |
@@ -100,13 +98,12 @@ Exceeding either limit returns HTTP 400.
   "memory_mb": 2100,
   "version": "1.0.0"
 }
-```
-
+```text
 ### Authentication
 
 ```text
 Authorization: Bearer cmpd_live_<plaintext>
-```
+```text
 
 Keys are stored in an encrypted SQLite registry and issued via the `compadre-keys` CLI. Each key carries its own `rate_limit_rpm` and billing metadata. The registry is the sole source of truth — there is no single-key environment-variable fallback. See [monetization.md](monetization.md) and [rate-limiting.md](rate-limiting.md).
 
@@ -122,8 +119,7 @@ async def transcriptions(file: UploadFile):
     async with lock:  # One transcription at a time, FIFO order
         result = await run_in_executor(transcribe, audio_path)
     return format_response(result, response_format)
-```
-
+```text
 - No Redis, no Celery, no external queue
 - `asyncio.Lock` ensures FIFO ordering
 - FastAPI keeps HTTP connection open until transcription is ready
@@ -181,8 +177,7 @@ Caddy (reverse proxy + load balancer)
     ├── VPS 1: compadre-stt instance (own FIFO queue)
     ├── VPS 2: compadre-stt instance (own FIFO queue)
     └── VPS N: compadre-stt instance (own FIFO queue)
-```
-
+```text
 ### Caddy configuration
 
 ```caddyfile
@@ -194,8 +189,7 @@ stt.example.com {
         health_interval 30s
     }
 }
-```
-
+```text
 ### Scaling rules
 
 | Audio volume | Instances |
@@ -224,8 +218,7 @@ n8n workflow:
     │
     └── On any failover: notify sysop (Slack/email/webhook)
         "compadre primary overloaded, failover triggered"
-```
-
+```text
 **Why n8n-side failover (not Caddy):**
 
 - n8n can alert the sysop about overload
@@ -274,7 +267,7 @@ services:
       - compadre-models:/app/models:rw
       - compadre-registry:/var/lib/compadre:rw
     restart: unless-stopped
-```
+```text
 
 Two services: `compadre-stt` (STT API, internal port 8000) + `caddy` (HTTPS reverse proxy, ports 80/443). All external access goes through Caddy. The Caddyfile uses `handle` blocks to route API paths (`/v1/*`, `/health`) to the reverse proxy and everything else to `file_server` for the landing page (served from `/srv/www`). The `reverse_proxy` block includes `trusted_proxies private_ranges` (for reliable `X-Forwarded-For` client IP extraction) and `lb_policy least_conn`. Scale by changing `deploy.replicas` — Caddy load-balances across replicas via the `dynamic a` upstream resolver (re-resolves Docker DNS every 5s). No Redis, no workers.
 

@@ -94,7 +94,7 @@
       register: env_sync
       changed_when: "'Added:' in env_sync.stdout"
 
-    - name: "[Config] Show added variables"
+    - name: "[Config] Show added variables"  # noqa: no-handler — debug-only, not mutating state
       when: env_sync.changed
       ansible.builtin.debug:
         msg: "{{ env_sync.stdout }}"

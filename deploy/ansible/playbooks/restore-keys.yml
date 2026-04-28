@@ -115,7 +115,7 @@
       # docker CLI's env (set via ansible ``environment:``) rather than
       # landing in argv / /proc/<pid>/cmdline. ``BACKUP_FILE`` is not
       # secret, so the inline ``-e BACKUP_FILE=<path>`` form is fine.
-      ansible.builtin.shell:
+      ansible.builtin.shell:  # noqa: command-instead-of-shell — uses shell parameter expansion for BACKUP_PASSPHRASE
         cmd: >-
           docker compose exec -T
           -e BACKUP_FILE={{ backup_file | quote }}

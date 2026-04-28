@@ -13,3 +13,24 @@ MD025: false
 
 # Allow trailing punctuation in headings
 MD026: false
+
+# Allow compact table style (|A|B|) — consistent project convention
+MD060: false
+
+# Allow first line to be blockquote (historical banners)
+MD041: false
+
+# Allow blank-line formatting variations in historical docs
+MD031: false
+MD022: false
+MD032: false
+MD007: false
+
+# Allow duplicate headings in auto-generated progress logs
+MD024: false
+
+# Allow bare code fences in historical docs
+MD040: false
+
+# Allow flexible ordered list numbering
+MD029: false

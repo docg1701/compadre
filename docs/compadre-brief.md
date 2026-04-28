@@ -1,3 +1,5 @@
+# Compadre Brief
+
 > ⚠️ **Historical Reference** — This is the original MVP technical brief (2026-03). It informed the initial
 > implementation. See [README.md](../README.md) and [api-reference.md](api-reference.md) for the current state
 > of the project. Many instructions here (deleting TTS code, renaming packages) were already executed.
@@ -55,13 +57,13 @@ The architectural shape of Comadre's request lifecycle is:
 
 ```
 auth → rate-limit → acquire FIFO lock → preprocess → engine → post-process → return audio
-```
+```text
 
 Compadre's lifecycle is the mirror:
 
 ```
 auth → rate-limit → acquire FIFO lock → decode audio → engine (transcribe) → format output → return text
-```
+```text
 
 The auth, rate-limit, lock, and return wrapping are **identical Comadre code**. Only the middle three steps differ.
 
@@ -112,7 +114,7 @@ model=whisper-large-v3-turbo (optional; ignored — only one model exists, accep
 language=pt                  (optional; default auto-detect)
 response_format=text         (optional; default text)
 temperature=0                (accept for compat; ignored in MVP)
-```
+```text
 
 Key prefix: `cmpd_live_...` (Compadre brand; mirrors Comadre's `cmpd_live_...`).
 

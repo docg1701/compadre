@@ -1,6 +1,8 @@
+# Troubleshooting
+
 > **Last updated:** 2026-04-26
 
-# Troubleshooting
+# Common Issues
 
 Common issues with symptoms, causes, and resolution steps.
 
@@ -27,7 +29,7 @@ Common issues with symptoms, causes, and resolution steps.
    ```
 
 3. IMPORTANT: store the key in your password manager. Losing it makes every encrypted tax ID in the registry unrecoverable.
-4. Restart: `docker compose up -d`.
+1. Restart: `docker compose up -d`.
 
 ### Model download fails
 
@@ -40,7 +42,7 @@ Common issues with symptoms, causes, and resolution steps.
 1. Check logs: `docker compose logs --tail=50`
 2. Look for SSL or connection errors in the download output
 3. Verify the VPS can reach HuggingFace Hub: `curl -I https://huggingface.co`
-4. Alternative: pre-seed the HuggingFace cache via `deploy-models.yml` playbook
+5. Alternative: pre-seed the HuggingFace cache via `deploy-models.yml` playbook
 
 ### ffmpeg/ffprobe not found
 
@@ -55,6 +57,7 @@ Common issues with symptoms, causes, and resolution steps.
    docker compose exec compadre-stt ffmpeg -version | head -1
    docker compose exec compadre-stt ffprobe -version | head -1
    ```
+
 2. Check the Dockerfile installs ffmpeg via apt: `apt-get install -y ffmpeg`
 3. Rebuild the image: `docker compose up -d --build`
 
@@ -187,7 +190,7 @@ Common issues with symptoms, causes, and resolution steps.
 2. Check engine status: `curl -k https://localhost/health | jq .engines.whisper.loaded`
 3. Check logs for errors: `docker compose logs --tail=50`
 4. If the model failed to load, verify disk space and HuggingFace cache integrity
-4. Try a different reference recording with clearer audio
+5. Try a different reference recording with clearer audio
 
 ## HTTPS / Caddy Issues
 
@@ -202,7 +205,7 @@ Common issues with symptoms, causes, and resolution steps.
 1. For public domains: verify DNS A record points to the VPS IP
 2. For private IPs: use `curl -k` or configure clients to accept self-signed certs
 3. Check Caddy logs: `docker compose logs caddy`
-4. Verify Caddy can reach the STT service: `docker compose exec caddy wget -qO- http://compadre-stt:8000/health`
+5. Verify Caddy can reach the STT service: `docker compose exec caddy wget -qO- http://compadre-stt:8000/health`
 
 ### `compadre-keys` CLI errors
 
@@ -218,7 +221,7 @@ Common issues with symptoms, causes, and resolution steps.
 
 2. Check that `.env` on the host has `KEY_REGISTRY_ENCRYPTION_KEY` populated (`grep KEY_REGISTRY_ENCRYPTION_KEY ~/compadre/.env`). If the CLI is being run outside the container, the same env var must be exported in the calling shell.
 3. For "Database error" messages, verify the registry path is writable and the volume is mounted: `docker compose exec compadre-stt ls -la /var/lib/compadre/registry.db`.
-4. The CLI exit codes map to: 0 success, 2 usage error, 3 not found, 5 database error, 6 configuration error (see `compadre-keys --help`).
+5. The CLI exit codes map to: 0 success, 2 usage error, 3 not found, 5 database error, 6 configuration error (see `compadre-keys --help`).
 
 ### `compadre-keys cache-status` reports "unavailable"
 
@@ -237,7 +240,7 @@ Common issues with symptoms, causes, and resolution steps.
 
    If the glob comes up empty, the service may still be in the startup warm-up phase; wait ~20 s and retry. If it stays empty, check the service logs for `Counter snapshot write` warnings.
 3. If the CLI runs on the host (not inside the container) and the container mounts a named Docker volume, the host path `./data/keys/` is unrelated to the in-container path `/var/lib/compadre/`. Set `KEY_REGISTRY_DB_PATH` in your host shell to the mounted location, or run the CLI inside the container (`docker compose exec compadre-stt ...`).
-4. The "unavailable" state is never an error — `compadre-keys cache-status` exits 0 by design. If you need a non-zero signal in scripts, check `.snapshot_available` from `--format json`.
+5. The "unavailable" state is never an error — `compadre-keys cache-status` exits 0 by design. If you need a non-zero signal in scripts, check `.snapshot_available` from `--format json`.
 
 ### UFW blocking access
 
@@ -264,7 +267,7 @@ Common issues with symptoms, causes, and resolution steps.
 1. Check logs: `docker compose -f ~/compadre/compose.yaml logs --tail=50`
 2. Check container status: `docker compose -f ~/compadre/compose.yaml ps`
 3. Try restarting: `docker compose -f ~/compadre/compose.yaml restart`
-4. Roll back to previous version:
+5. Roll back to previous version:
 
     ```bash
     cd ~/compadre
@@ -303,7 +306,7 @@ Common issues with symptoms, causes, and resolution steps.
 1. Check disk usage: `df -h /`
 2. Check model volume size: `docker compose exec compadre-stt du -sh /app/models`
 3. Check Docker log size: `docker system df -v | grep compadre`
-4. Prune old Docker logs if needed: `docker compose exec compadre-stt sh -c 'truncate -s 0 /var/log/* 2>/dev/null || true'`
+5. Prune old Docker logs if needed: `docker compose exec compadre-stt sh -c 'truncate -s 0 /var/log/* 2>/dev/null || true'`
 5. The bootstrap playbook installs log rotation (`max-size: 10m, max-file: 5` in compose.yaml)
 
 ## Log Format
@@ -313,6 +316,7 @@ Compadre uses structured pipe-delimited logging:
 ```text
 2026-03-25T14:30:00Z | INFO  | request | STT transcription completed in 11.5s
 2026-03-25T14:30:01Z | ERROR | request | Unhandled exception during request processing
+
 ```
 
 **Format:** `timestamp | level | component | message`
@@ -339,4 +343,5 @@ docker compose logs | grep '| ERROR |'
 
 # Follow logs in real time
 docker compose logs -f --tail=20
+
 ```
