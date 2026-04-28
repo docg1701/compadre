@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] — 2026-04-28
 
+### Added
+
+- **External pentest report** (2026-04-28): 0 critical, 0 high findings.
+  Five low-severity findings (F4, F6, F7, F8, F9) hardened in this release.
+
 ### Changed
 
 - Bump version to 1.2.0 (pyproject.toml, __init__.py, README badge)
 
 ### Fixed
+
+- **Caddy pentest hardening**: CONNECT/traversal rejection path corrected
+  (handle-block ordering, F4). `Server` and `Via` headers stripped from all
+  responses (F6). CSP `frame-ancestors` tightened (F7). Error-page security
+  headers re-applied via `handle_errors` (F8). Let's Encrypt staging CA leak
+  eliminated (F9).
 
 - **docs/deployment-guide.md**: corrected health endpoint output (unauthenticated
   callers see `{"status":"healthy"}`, not full model details). Fixed
@@ -23,7 +34,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   download, `-m shell` ad-hoc syntax, `--cpf`/`--cnpj` flags). References
   `docs/deployment-guide.md` to avoid redundancy.
 
-## [2.0.0] — 2026-04-26
+- **markdownlint**: fixed MD009 (trailing space in pentest report); disabled
+  MD050 (strong-style) — project uses asterisk bold.
+
+- **CHANGELOG**: replaced "Comadre" with "Compadre" throughout.
+
+## [1.1.0] — 2026-04-28
+
+### Fixed
+
+- **CI green**: all 7 GitHub Actions jobs passing — lint (ruff + pre-commit),
+  type-check (mypy strict), test-fast (252 tests), test-non-regression (44
+  security contract tests), ansible-lint (0 failures across 7 playbooks),
+  docker-build, and coverage (76%, fail-under=60).
+
+- **ansible-lint CI**: added `ansible-galaxy collection install` step for
+  `community.general` and `ansible.posix`. Fixed yamllint config
+  compatibility.
+
+- Bump version references from 1.0.0 to 1.1.0.
+
+## [1.0.0] — 2026-04-26
 
 Multi-tenant key registry, automated billing lifecycle, LGPD-compliant
 customer data handling, multi-replica scaling, and a hardening pass that
@@ -164,4 +195,6 @@ closed 23 acceptance defects across 5 review rounds.
 - **UFW** active by default (22 / 80 / 443).
 - **Encrypted backups** with AES-256-GCM + PBKDF2-SHA256 600k iters.
 
-[2.0.0]: https://github.com/docg1701/compadre/releases/tag/v2.0.0
+[1.2.0]: https://github.com/docg1701/compadre/releases/tag/v1.2.0
+[1.1.0]: https://github.com/docg1701/compadre/releases/tag/v1.1.0
+[1.0.0]: https://github.com/docg1701/compadre/releases/tag/v1.0.0
