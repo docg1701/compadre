@@ -5,6 +5,24 @@ All notable changes to Comadre are tracked here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-04-28
+
+### Changed
+
+- Bump version to 1.2.0 (pyproject.toml, __init__.py, README badge)
+
+### Fixed
+
+- **docs/deployment-guide.md**: corrected health endpoint output (unauthenticated
+  callers see `{"status":"healthy"}`, not full model details). Fixed
+  `health.yml` "Requires sudo" column. Added `deploy-models.yml` + restart to
+  deployment flow. Added `ansible_become_password` notes for Debian UFW checks.
+
+- **AGENTS.md**: added LLM-oriented Ansible runbook section with mandatory
+  invocation pattern and friction points (become password, restart after model
+  download, `-m shell` ad-hoc syntax, `--cpf`/`--cnpj` flags). References
+  `docs/deployment-guide.md` to avoid redundancy.
+
 ## [2.0.0] — 2026-04-26
 
 Multi-tenant key registry, automated billing lifecycle, LGPD-compliant

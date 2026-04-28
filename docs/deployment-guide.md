@@ -108,16 +108,20 @@ Compadre STT Service — Bootstrap Complete
 ============================================
 
 Service Status:  healthy
-Loaded Models:   large-v3-turbo
 ============================================
 ```
+
+The `/health` endpoint without authentication returns only `{"status": "healthy"}`.
+Model details are hidden from unauthenticated callers. To verify the model loaded,
+check the internal health endpoint or run a transcription test (step 8).
 
 ### 7. Verify Service
 
 ```bash
 # Health check.
 curl -k https://YOUR_VPS_IP/health
-# → {"status": "healthy", "models": ["large-v3-turbo"]}
+# → {"status": "healthy"}
+# (model details are hidden from unauthenticated callers)
 
 # Transcription test (after issuing a key — see step 8).
 curl -k -X POST \
@@ -147,8 +151,11 @@ ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt
 
 ### 9. Run Health Assertions
 
+**On Debian, `health.yml` needs `ansible_become_password`** because `ufw status` requires sudo.
+
 ```bash
-ansible-playbook playbooks/health.yml -i inventory/production.yml
+ansible-playbook playbooks/health.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS"
 echo $?   # 0 = all healthy
 ```
 
@@ -168,8 +175,10 @@ ansible-playbook playbooks/restore-keys.yml -i inventory/production.yml \
 ```
 
 Both `backup-keys.yml` and `restore-keys.yml` read `COMPADRE_BACKUP_PASSPHRASE`
-from the environment. The restore playbook also requires `ansible_become_password`
-because it stops/restarts the Docker service.
+from the environment. The restore playbook also accepts `ansible_become_password`
+for consistency with other playbooks (it stops/restarts the Docker service).
+`health.yml` requires `ansible_become_password` on Debian because `ufw status`
+needs sudo.
 
 ### Rollback Procedure
 
@@ -282,21 +291,29 @@ For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/
 
 ## Complete Deployment Flow
 
-A fresh deploy requires two playbooks in sequence:
+A fresh deploy requires these playbooks in sequence:
 
 ```bash
 cd deploy/ansible
-export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
-export COMPADRE_BACKUP_PASSPHRASE="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+export COMPADRE_BACKUP_PASSPHRASE="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
 # 1. Bootstrap — installs everything, builds and starts services
 ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
   -e "ansible_become_password=YOUR_SUDO_PASS"
 
-# 2. Verify — read-only diagnostic check
-ansible-playbook playbooks/health.yml -i inventory/production.yml
+# 2. Pre-seed the Whisper model (~1.5 GB download)
+ansible-playbook playbooks/deploy-models.yml -i inventory/production.yml
 
-# 3. Register the first customer and issue their API key
+# 3. Restart so the service picks up the newly downloaded model
+ansible -i inventory/production.yml compadre_vps -m shell \
+  -a "docker compose -f ~/compadre/compose.yaml restart compadre-stt"
+
+# 4. Verify — full operational assertion (needs sudo on Debian for UFW)
+ansible-playbook playbooks/health.yml -i inventory/production.yml \
+  -e "ansible_become_password=YOUR_SUDO_PASS"
+
+# 5. Register the first customer and issue their API key
 ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
   compadre-keys create-customer --name 'Acme Demo' --email ops@acme.example --cpf 11144477735"
 ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt \
@@ -304,7 +321,7 @@ ssh YOUR_SSH_USER@YOUR_VPS_IP "cd ~/compadre && docker compose exec compadre-stt
 # The plaintext (cmpd_live_...) is printed once; copy it to your client config now.
 ```
 
-After these three steps, the service is fully operational and ready to authenticate traffic.
+After these steps, the service is fully operational and ready to authenticate traffic.
 
 ## Available Playbooks
 
@@ -313,7 +330,7 @@ After these three steps, the service is fully operational and ready to authentic
 | `bootstrap.yml` | First-time VPS setup (Docker, UFW, build, start) | Yes |
 | `deploy-models.yml` | Pre-seed faster-whisper HuggingFace cache for air-gapped deploys | No |
 | `update.yml` | Pull latest code, rebuild image, restart services | No |
-| `health.yml` | Read-only diagnostic (status, memory, disk, cron) | No |
+| `health.yml` | Read-only diagnostic (status, memory, disk, cron). Requires `ansible_become_password` on Debian for UFW check. | Yes (Debian) |
 | `cleanup.yml` | Full decommission: remove all artifacts and system components | Yes |
 
 ## Bootstrap -- First Deployment
@@ -357,10 +374,11 @@ Compadre STT Service -- Bootstrap Complete
 ============================================
 
 Service Status:  healthy
-Loaded Model:    large-v3-turbo
-Endpoint URL:    https://YOUR_VPS_DOMAIN
 ============================================
 ```
+
+The `/health` endpoint without authentication returns only `{"status": "healthy"}`.
+Model details are hidden from unauthenticated callers.
 
 **Test the deployment (after issuing a key):**
 

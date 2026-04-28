@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12+-blue?logo=python&logoColor=white" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/version-1.1.0-blue" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/STT-faster--whisper__large--v3--turbo-8b5cf6" alt="faster-whisper STT">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">

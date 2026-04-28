@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-**Last updated:** 2026-04-27
-
 ## Project Overview
 
 Compadre is a self-hosted STT API using faster-whisper (large-v3-turbo, int8 quantization, CPU-only). Serves n8n chatbot workflows for WhatsApp/Telegram/Messenger transcription in Brazilian Portuguese.
@@ -173,3 +169,37 @@ Requires: `uv`, `ffmpeg`, optionally `docker`. Full runbook: `docs/ci-runbook.md
 - **`update_customer` audit `details_json` carries `notes_op` (Story 5.1 review-pass).** Two operator paths land in the same `update_customer` action: `--add-note` (additive, append-mode) and `--notes` (destructive, replace-mode). Without a discriminator, a forensic reader cannot detect a notes-column wipe. `notes_op` is `"append"` or `"replace"` (operator-internal metadata, not PII — safe to record). Same-value writes (e.g. `--name "X"` against a customer already named "X") produce no UPDATE and no audit row at the helper level, so the audit log is free of "changed" rows that did not actually change anything. The `_FORBIDDEN_DETAIL_KEYS` invariant is enforced symmetrically on write (now `Sequence`-recursive) and read (`filter_forbidden_keys`).
 
 - **`export-customer --include-audit` envelope grows `audit_events_total` + `audit_events_truncated` (Story 5.1 review-pass).** An LGPD Art. 18 II/V response must be provably complete or provably partial; silently capping at 1000 rows without signalling the truncation is a compliance gap. `audit_events` is now sorted ascending (chronological — matches `monetization.md` §1.4 wording). The `_audit_event_to_export_dict` projection emits `details: {"_corrupt": true}` for rows whose `details_json` is non-decodable or whose top-level JSON is not an object; the previous behaviour (silently dropping the field) hid out-of-band INSERTs from forensic readers. The `_EXPORT_AUDIT_LIMIT=1000` cap is unchanged — operators who hit truncation can paginate via `compadre-keys show --audit-tail` for the slice they need.
+
+## Ansible Deployment (LLM agent instructions)
+
+Full human-oriented guide: [`docs/deployment-guide.md`](docs/deployment-guide.md).
+
+The playbook order for a full deploy is: `cleanup.yml` → `bootstrap.yml` → `deploy-models.yml` → restart service → `health.yml` → `backup-keys.yml`. See the guide's "Complete Deployment Flow" for exact commands per playbook.
+
+### Mandatory invocation pattern for every playbook
+
+```bash
+cd /home/galvani/dev/compadre
+export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="<fernet-key>"    # inventory reads via lookup('env', ...)
+export COMPADRE_BACKUP_PASSPHRASE="<passphrase>"              # inventory reads via lookup('env', ...)
+ansible-playbook -i deploy/ansible/inventory/production.yml \
+  deploy/ansible/playbooks/<PLAYBOOK>.yml \
+  -e "ansible_become_password=<sudo-password>"               # required by cleanup, bootstrap, health
+```
+
+If either env var is not exported, the playbook fails at the prereq assert.
+
+### LLM-specific friction points (deviations from the human guide)
+
+1. **Always pass `ansible_become_password`** to every playbook. It is required by `cleanup.yml`, `bootstrap.yml`, and `health.yml` (UFW check needs sudo on Debian). It is harmless for the others. The human guide omits it on some examples — ignore that.
+
+2. **After `deploy-models.yml`, restart the service.** The model only loads at startup. Use ad-hoc ansible:
+   ```bash
+   ansible -i deploy/ansible/inventory/production.yml compadre_vps -m shell \
+     -a "docker compose -f ~/compadre/compose.yaml restart compadre-stt"
+   ```
+   Use `-m shell` (not `-m command`) and pass the command as a plain string without extra quoting.
+
+3. **`compadre-keys create-customer` uses `--cpf` / `--cnpj`, not `--tax-id`.** The bootstrap summary message is outdated. Run `compadre-keys <command> --help` to confirm flags.
+
+4. **`restore-keys.yml` restores DB state from the backup timestamp.** Data created after that backup is lost. If you need to preserve current data, run `backup-keys.yml` first, then restore from that fresh archive.
