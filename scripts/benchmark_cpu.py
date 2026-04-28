@@ -20,12 +20,10 @@ import os
 import statistics
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -273,11 +271,13 @@ def run_benchmark(
         vad_filter=vad_filter,
     )
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  Config: {config_name}")
-    print(f"  Model: {model_name}, compute={compute_type}, beam={beam_size}, "
-          f"threads={cpu_threads}, vad={vad_filter}")
-    print(f"{'='*70}")
+    print(
+        f"  Model: {model_name}, compute={compute_type}, beam={beam_size}, "
+        f"threads={cpu_threads}, vad={vad_filter}"
+    )
+    print(f"{'=' * 70}")
 
     # Load model
     t0 = time.monotonic()
@@ -352,9 +352,9 @@ def run_benchmark(
 
 def print_results_table(results: list[ConfigResult]) -> None:
     """Print a summary RTF table across all configs."""
-    print(f"\n{'='*90}")
+    print(f"\n{'=' * 90}")
     print("  SUMMARY: RTF by Configuration")
-    print(f"{'='*90}")
+    print(f"{'=' * 90}")
     header = (
         f"{'Config':<30s} | {'Mean RTF':>8s} | {'Median RTF':>10s} | "
         f"{'P95 RTF':>8s} | {'Clips':>5s}"
@@ -370,15 +370,19 @@ def print_results_table(results: list[ConfigResult]) -> None:
         )
 
     # Print per-clip breakdown for top configs
-    print(f"\n{'='*90}")
+    print(f"\n{'=' * 90}")
     print("  PER-CLIP RTF DETAIL")
-    print(f"{'='*90}")
+    print(f"{'=' * 90}")
     for r in sorted(results, key=lambda x: x.mean_rtf):
-        print(f"\n  [{r.config_name}] model={r.model}, beam={r.beam_size}, "
-              f"threads={r.cpu_threads}, ctype={r.compute_type}, vad={r.vad_filter}")
+        print(
+            f"\n  [{r.config_name}] model={r.model}, beam={r.beam_size}, "
+            f"threads={r.cpu_threads}, ctype={r.compute_type}, vad={r.vad_filter}"
+        )
         for c in r.clips:
-            print(f"    {c.label:>16s}: {c.audio_duration_s:5.1f}s audio -> "
-                  f"{c.wall_time_s:5.1f}s wall, RTF={c.rtf:.3f}")
+            print(
+                f"    {c.label:>16s}: {c.audio_duration_s:5.1f}s audio -> "
+                f"{c.wall_time_s:5.1f}s wall, RTF={c.rtf:.3f}"
+            )
 
 
 def print_wer_table(results: list[ConfigResult]) -> None:
@@ -386,9 +390,9 @@ def print_wer_table(results: list[ConfigResult]) -> None:
     if not any(r.wer_scores for r in results):
         return
 
-    print(f"\n{'='*90}")
+    print(f"\n{'=' * 90}")
     print("  WER COMPARISON (against reference transcripts)")
-    print(f"{'='*90}")
+    print(f"{'=' * 90}")
 
     baseline_wer = None
     for r in results:
@@ -396,9 +400,7 @@ def print_wer_table(results: list[ConfigResult]) -> None:
             baseline_wer = r.mean_wer
             break
 
-    header = (
-        f"{'Config':<30s} | {'Mean WER':>9s} | {'Δ vs baseline':>14s}"
-    )
+    header = f"{'Config':<30s} | {'Mean WER':>9s} | {'Δ vs baseline':>14s}"
     print(header)
     print("-" * len(header))
 
@@ -450,13 +452,11 @@ def evaluate_gates(results: list[ConfigResult]) -> dict[str, str]:
     return gates
 
 
-def print_recommendation(
-    results: list[ConfigResult], gates: dict[str, str]
-) -> None:
+def print_recommendation(results: list[ConfigResult], gates: dict[str, str]) -> None:
     """Print final recommendation."""
-    print(f"\n{'='*90}")
+    print(f"\n{'=' * 90}")
     print("  ACCEPTANCE GATES")
-    print(f"{'='*90}")
+    print(f"{'=' * 90}")
     header = f"{'Config':<30s} | {'Gate':>10s} | {'Mean RTF':>8s} | {'Mean WER':>9s}"
     print(header)
     print("-" * len(header))
@@ -474,12 +474,14 @@ def print_recommendation(
             best = r
             break
 
-    print(f"\n{'─'*90}")
+    print(f"\n{'─' * 90}")
     if best:
         print(f"  RECOMMENDATION: {best.config_name}")
-        print(f"    Model: {best.model}, beam={best.beam_size}, "
-              f"threads={best.cpu_threads}, compute={best.compute_type}, "
-              f"vad={best.vad_filter}")
+        print(
+            f"    Model: {best.model}, beam={best.beam_size}, "
+            f"threads={best.cpu_threads}, compute={best.compute_type}, "
+            f"vad={best.vad_filter}"
+        )
         print(f"    Mean RTF: {best.mean_rtf:.3f}")
         print(f"    Gate: {gates[best.config_name]}")
     else:
@@ -487,7 +489,7 @@ def print_recommendation(
         print("  Best realistic RTF:")
         for r in sorted(results, key=lambda x: x.mean_rtf)[:3]:
             print(f"    {r.config_name}: RTF={r.mean_rtf:.3f}")
-    print(f"{'─'*90}")
+    print(f"{'─' * 90}")
 
 
 # ---------------------------------------------------------------------------
@@ -496,9 +498,7 @@ def print_recommendation(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Compadre CPU STT benchmark harness"
-    )
+    parser = argparse.ArgumentParser(description="Compadre CPU STT benchmark harness")
     parser.add_argument(
         "--audio-dir",
         default="/tmp/benchmark_audio",
@@ -658,7 +658,7 @@ def main() -> None:
                 for r in results
             ]
         }
-        with open(args.json_output, "w") as f:
+        with Path(args.json_output).open("w") as f:
             json.dump(output, f, indent=2)
         print(f"\nFull results written to {args.json_output}")
 
