@@ -152,6 +152,7 @@
     - name: "[Summary] Report update status"
       vars:
         hc: "{{ health_check.json | default({}) }}"
+        models: "{{ hc.models | default([]) }}"
       ansible.builtin.debug:
         msg: |
           ============================================
@@ -159,8 +160,12 @@
           ============================================
 
           Service Status:  {{ hc.status | default('unknown') }}
-          Loaded Models:   {{ hc.models | default([]) | join(', ') }}
-          Model Count:     {{ hc.models | default([]) | length }}
+          {% if models | length > 0 %}
+          Loaded Models:   {{ models | join(', ') }}
+          Model Count:     {{ models | length }}
+          {% else %}
+          Models:          (authenticate for details)
+          {% endif %}
           HTTPS URL:       https://{{ ansible_host }}
 
           Data preserved:  Volumes (models, registry) intact
