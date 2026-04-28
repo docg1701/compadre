@@ -90,7 +90,7 @@ Content-Type: application/json
 
 ## LGPD Operator Obligations
 
-Compadre 1.0.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Compadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Compadre primitive that discharges each one, and provides the runbook you fire on a breach.
+Compadre 1.1.0 processes personal data of Brazilian customers — name, email, and encrypted CPF / CNPJ — on your behalf. Under **Lei Geral de Proteção de Dados Pessoais** (Lei 13.709/2018, "LGPD"), **you are the data controller** (Art. 5 VI); Compadre is a software tool. This section is your operator handbook: it enumerates the obligations you carry under LGPD, names the already-shipped Compadre primitive that discharges each one, and provides the runbook you fire on a breach.
 
 The legal basis for processing is *"execução de contrato"* (Art. 7 V) — you collect the data exclusively to execute the API-access subscription. No secondary use, no data sharing, no profiling. The retention period is bounded by the commercial relationship plus the Brazilian commercial-law minimum (typically 5 years for fiscal records). Deletion is operator-driven via `compadre-keys delete-customer --hard`, never automatic.
 
@@ -485,7 +485,7 @@ Pre-fill these roles **at deployment time** so the incident-day operator has nam
 
 The block below is a **structural starting point** for the LGPD section of your own privacy policy. Adapt every placeholder; have your counsel review the final text before publishing it on your terms-of-service page. **This template is not legal advice.**
 
-> **Scope of this template.** Drafted for the assumed Compadre 1.0.0 customer profile — Brazilian legal entities (CNPJ-bearing) and natural persons of legal age (CPF-bearing) entering an API-subscription contract. **It does not cover Art. 14 (children and adolescents).** If your customer base may include minors — even as ancillary end-users behind a contracting entity — consult counsel for an Art. 14 addendum (parental consent flow, separate retention rules, narrower processing scope). Compadre's data model has no field that surfaces a minor, but the operator's deployment context determines applicability.
+> **Scope of this template.** Drafted for the assumed Compadre 1.1.0 customer profile — Brazilian legal entities (CNPJ-bearing) and natural persons of legal age (CPF-bearing) entering an API-subscription contract. **It does not cover Art. 14 (children and adolescents).** If your customer base may include minors — even as ancillary end-users behind a contracting entity — consult counsel for an Art. 14 addendum (parental consent flow, separate retention rules, narrower processing scope). Compadre's data model has no field that surfaces a minor, but the operator's deployment context determines applicability.
 
 ```text
 — Português —

@@ -96,7 +96,7 @@ Exceeding either limit returns HTTP 400.
   "queue_depth": 0,
   "uptime_seconds": 3600,
   "memory_mb": 2100,
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```text
 ### Authentication

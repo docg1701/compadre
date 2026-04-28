@@ -301,7 +301,7 @@ Returns service health status. No authentication required.
   "queue_depth": 0,
   "uptime_seconds": 3600,
   "memory_mb": 2100,
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```text
 ### Warming Up Response (503)
@@ -316,7 +316,7 @@ Returned while the model is still loading after startup:
   "queue_depth": 0,
   "uptime_seconds": 15,
   "memory_mb": 800,
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
 ```text
 ### Status Values
