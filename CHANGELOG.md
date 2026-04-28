@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Comadre are tracked here.
+All notable changes to Compadre are tracked here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -31,7 +31,7 @@ closed 23 acceptance defects across 5 review rounds.
 
 ### Added
 
-- **Customer + API-key registry** (Epics 1–5). SQLite-backed `comadre-keys`
+- **Customer + API-key registry** (Epics 1–5). SQLite-backed `compadre-keys`
   CLI replaces the single `API_KEY` env var. 21 verbs covering customer
   CRUD, key issue/rotate/revoke, billing lifecycle (mark-paid / suspend /
   reactivate / suspend-sweep / at-risk / revenue), LGPD export/delete,
@@ -47,8 +47,8 @@ closed 23 acceptance defects across 5 review rounds.
   `X-RateLimit-*` headers; `/health` is unrate-limited.
 - **Per-key counters** (Story 2.3) — `requests_total`, `auth_success`,
   `rate_limit_429`, `peak_rpm`, `avg_rpm_last_60s`. Snapshotted every 15s
-  to per-replica JSON files; `comadre-keys cache-status` and
-  `comadre-keys show <prefix>` aggregate across replicas (sum / max / min
+  to per-replica JSON files; `compadre-keys cache-status` and
+  `compadre-keys show <prefix>` aggregate across replicas (sum / max / min
   per metric semantics).
 - **Multi-replica horizontal scaling** via `compose.yaml` `deploy.replicas`.
   Caddy `dynamic a` upstream resolver re-resolves Docker DNS every 5s and
@@ -57,7 +57,7 @@ closed 23 acceptance defects across 5 review rounds.
 - **Caddy bounded-payload policy** for `@api` (`/v1/*` + `/health`):
   rejects oversized bodies (>1 MiB), missing Content-Length on writes,
   Transfer-Encoding, and malformed Content-Length — all with the canonical
-  ComadreError JSON envelope and full security-header overlay.
+  CompadreError JSON envelope and full security-header overlay.
 - **Caddy error-envelope rewrite** (`handle_errors`) so 404 / 405 /
   4xx-other / 5xx responses ship the same `{"error": {message, type,
   hint}}` shape as upstream, with security headers and `Server`/`Via`
@@ -69,7 +69,7 @@ closed 23 acceptance defects across 5 review rounds.
   operator-TZ; 14-day retention.
 - **Operational assertion playbook** `health.yml` (Story 4.4) — exits
   non-zero on DB mode drift, missing crons, UFW misconfig, `/health`
-  unhealthy, or any `comadre-keys health` warn/fail. Wireable into
+  unhealthy, or any `compadre-keys health` warn/fail. Wireable into
   monitoring.
 - **CI non-regression suites** for security headers, docs-endpoints-
   disabled, timing-safe key comparison, oversized-body rejection, rate-
@@ -96,7 +96,7 @@ closed 23 acceptance defects across 5 review rounds.
 - **Auth model retired**: legacy single-`API_KEY` env-var path removed.
   All requests authenticate against the registry; the dispatch layer is
   gone.
-- **API errors** now route exclusively through the `ComadreError`
+- **API errors** now route exclusively through the `CompadreError`
   hierarchy. Raw `FastAPI`/`HTTPException` calls are statically banned
   (CI scan in Story 4.5f).
 - **Suspension sweep predicate** uses strict `paid_until < today`
@@ -125,8 +125,8 @@ closed 23 acceptance defects across 5 review rounds.
     Fernet rotations.
   - **B10** — manual key with `paid_until=NULL` correctly admitted as
     trial-window; expired keys correctly 401.
-  - **B16** — backup cron uses bundled `comadre-keys-backup` binary +
-    `/etc/comadre/backup-env`; honors retention.
+  - **B16** — backup cron uses bundled `compadre-keys-backup` binary +
+    `/etc/compadre/backup-env`; honors retention.
   - **B19** — Caddy 4xx/5xx errors emit the project's JSON envelope.
   - **B20** — pydantic validation surfaces field-tagged messages
     (`string_*`, `missing`, `enum`, numeric bounds, dict shape,
@@ -148,7 +148,7 @@ closed 23 acceptance defects across 5 review rounds.
 ### Security
 
 - **CPF/CNPJ encrypted at rest** with operator-rotatable Fernet key
-  (`comadre-keys rotate-encryption-key`). Single decrypt site
+  (`compadre-keys rotate-encryption-key`). Single decrypt site
   (`crypto.py::decrypt_tax_id`) enforced by static invariant.
 - **LGPD tombstone pattern** — hard-delete preserves the audit chain
   while purging name / email / encrypted tax_id / notes (Art. 18 VI).
@@ -164,4 +164,4 @@ closed 23 acceptance defects across 5 review rounds.
 - **UFW** active by default (22 / 80 / 443).
 - **Encrypted backups** with AES-256-GCM + PBKDF2-SHA256 600k iters.
 
-[2.0.0]: https://github.com/docg1701/comadre/releases/tag/v2.0.0
+[2.0.0]: https://github.com/docg1701/compadre/releases/tag/v2.0.0
