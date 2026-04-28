@@ -32,8 +32,9 @@ def test_health_response_shapes_full_vs_minimal_and_503_when_warming(
     mock_engine: MagicMock,
 ) -> None:
     """Authenticated /health returns the full 7-field shape in fixed order
-    (monitor-script contract); unauthenticated returns only ``status`` +
-    ``models``; ``ready=False`` flips minimal to 503/warming_up."""
+    (monitor-script contract); unauthenticated returns only ``status``
+    (no model list or internals); ``ready=False`` flips minimal to
+    503/warming_up."""
     full, full_status = build_health_response(
         engine=mock_engine, ready=True, start_time=time.monotonic()
     )
@@ -45,7 +46,7 @@ def test_health_response_shapes_full_vs_minimal_and_503_when_warming(
 
     minimal, mini_status = build_minimal_health_response(engine=mock_engine, ready=True)
     assert mini_status == 200
-    assert set(minimal.keys()) == {"status", "models"}
+    assert set(minimal.keys()) == {"status"}
     assert minimal["status"] == "healthy"
 
     warming, warming_status = build_minimal_health_response(
@@ -58,10 +59,10 @@ def test_health_response_shapes_full_vs_minimal_and_503_when_warming(
 async def test_health_endpoint_minimal_unauth_full_auth(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    """End-to-end smoke: unauth → minimal shape; auth → full shape."""
+    """End-to-end smoke: unauth → status-only shape; auth → full shape."""
     response = await client.get("/health")
     assert response.status_code == 200
-    assert set(response.json().keys()) == {"status", "models"}
+    assert set(response.json().keys()) == {"status"}
 
     response = await client.get("/health", headers=auth_headers)
     assert response.status_code == 200

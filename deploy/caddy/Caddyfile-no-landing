@@ -1,9 +1,24 @@
 {
 	default_sni {$DOMAIN:localhost}
+	servers {
+		timeouts {
+			read_header  5s
+			idle         30s
+		}
+	}
 }
 
 {$DOMAIN:localhost} {
 	encode gzip
+
+	# Anti-CONNECT: reject CONNECT method to prevent SSRF confusion.
+	@connect method CONNECT
+	respond @connect 405
+
+	# Reject path traversal segments — belt-and-suspenders on top of
+	# standard path normalization.
+	@traversal path_regexp /.*\.\..*
+	respond @traversal 400
 
 	header {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"

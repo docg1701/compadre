@@ -1,9 +1,24 @@
 {
 	default_sni {$DOMAIN:localhost}
+	servers {
+		timeouts {
+			read_header  5s
+			idle         30s
+		}
+	}
 }
 
 {$DOMAIN:localhost} {
 	encode gzip
+
+	# Anti-CONNECT: reject CONNECT method to prevent SSRF confusion.
+	@connect method CONNECT
+	respond @connect 405
+
+	# Reject path traversal segments — belt-and-suspenders on top of
+	# standard path normalization.
+	@traversal path_regexp /.*\.\..*
+	respond @traversal 400
 
 	header {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
@@ -11,7 +26,7 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "microphone=(), camera=(), geolocation=()"
-		Content-Security-Policy "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; media-src 'self' blob:; upgrade-insecure-requests; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; connect-src 'self'; media-src 'self' blob:; upgrade-insecure-requests; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 		-Via
 	}

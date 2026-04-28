@@ -51,8 +51,9 @@ def build_minimal_health_response(
 ) -> tuple[dict[str, Any], int]:
     """Build minimal health response for unauthenticated callers.
 
-    Returns only status and model list — no engine internals,
-    memory, uptime, version, or queue depth.
+    Returns only status — no engine internals, model list, memory,
+    uptime, version, or queue depth. The caller is not authenticated,
+    so internal details are not exposed.
     """
     if ready:
         status = HealthStatus.healthy
@@ -63,7 +64,6 @@ def build_minimal_health_response(
 
     body: dict[str, Any] = {
         "status": str(status),
-        "models": ["large-v3-turbo"],
     }
     return body, status_code
 

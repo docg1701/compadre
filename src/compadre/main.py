@@ -479,11 +479,11 @@ def create_app() -> FastAPI:
             if engine is None:
                 minimal: dict[str, Any] = {
                     "status": "warming_up",
-                    "models": ["large-v3-turbo"],
                 }
                 if authenticated:
                     minimal.update(
                         {
+                            "models": ["large-v3-turbo"],
                             "engines": {},
                             "queue_depth": 0,
                             "uptime_seconds": 0,

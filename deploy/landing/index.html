@@ -6,9 +6,25 @@
   <title>Compadre — STT para WhatsApp em Português Brasileiro</title>
   <meta name="description" content="Compadre Ouve Mensagem Por Áudio, Devolve Resposta Escrita. API self-hosted de speech-to-text otimizada para PT-BR, com endpoint compatível com OpenAI.">
   <link rel="icon" href="/logo-compadre.webp" type="image/webp">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Bungee&display=swap" rel="stylesheet">
+  <style>
+    /* Self-hosted fonts — no external dependencies */
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 300 700;
+      font-display: swap;
+      src: url('/fonts/inter-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Bungee';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('/fonts/bungee-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+  </style>
   <style>
     *, *::before, *::after {
       margin: 0;
@@ -916,197 +932,6 @@
     </div>
   </footer>
 
-  <script>
-    (function() {
-      'use strict';
-
-      const form = document.getElementById('form');
-      const apiKeyEl = document.getElementById('apiKey');
-      const audioFileEl = document.getElementById('audioFile');
-      const fileUploadArea = document.getElementById('fileUploadArea');
-      const fileNameEl = document.getElementById('fileName');
-      const responseFormatEl = document.getElementById('responseFormat');
-      const languageEl = document.getElementById('language');
-      const submitBtn = document.getElementById('submit');
-      const errorBox = document.getElementById('error');
-      const errorType = document.getElementById('errorType');
-      const errorMessage = document.getElementById('errorMessage');
-      const errorHint = document.getElementById('errorHint');
-      const resultBox = document.getElementById('result');
-      const transcriptionText = document.getElementById('transcriptionText');
-      const transcriptionMeta = document.getElementById('transcriptionMeta');
-      const copyBtn = document.getElementById('copyBtn');
-
-      // File upload drag-and-drop
-      fileUploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.add('dragover');
-      });
-
-      fileUploadArea.addEventListener('dragleave', () => {
-        fileUploadArea.classList.remove('dragover');
-      });
-
-      fileUploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) {
-          audioFileEl.files = e.dataTransfer.files;
-          updateFileDisplay();
-        }
-      });
-
-      audioFileEl.addEventListener('change', updateFileDisplay);
-
-      function updateFileDisplay() {
-        const file = audioFileEl.files[0];
-        if (file) {
-          fileNameEl.textContent = file.name;
-          fileUploadArea.classList.add('has-file');
-        } else {
-          fileNameEl.textContent = '';
-          fileUploadArea.classList.remove('has-file');
-        }
-      }
-
-      function showError(type, message, hint) {
-        errorType.textContent = type || 'error';
-        errorMessage.textContent = message || 'Erro desconhecido';
-        errorHint.textContent = hint || '';
-        errorHint.style.display = hint ? 'block' : 'none';
-        errorBox.classList.add('visible');
-      }
-
-      function hideError() {
-        errorBox.classList.remove('visible');
-      }
-
-      function hideResult() {
-        resultBox.classList.remove('visible');
-        transcriptionText.textContent = '';
-        transcriptionMeta.innerHTML = '';
-        resetCopyButton();
-      }
-
-      function resetCopyButton() {
-        copyBtn.classList.remove('copied');
-        copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></svg> Copiar';
-      }
-
-      // Copy to clipboard
-      copyBtn.addEventListener('click', async () => {
-        const text = transcriptionText.textContent;
-        if (!text) return;
-
-        try {
-          await navigator.clipboard.writeText(text);
-          copyBtn.classList.add('copied');
-          copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg> Copiado!';
-          setTimeout(resetCopyButton, 2500);
-        } catch {
-          // Fallback for older browsers
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          copyBtn.classList.add('copied');
-          copyBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg> Copiado!';
-          setTimeout(resetCopyButton, 2500);
-        }
-      });
-
-      // Submit handler
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        hideError();
-        hideResult();
-
-        const apiKey = apiKeyEl.value.trim();
-        if (!apiKey) {
-          showError('invalid_request', 'API Key é obrigatória.', 'Cole sua chave no campo acima.');
-          return;
-        }
-
-        const file = audioFileEl.files[0];
-        if (!file) {
-          showError('invalid_request', 'Selecione um arquivo de áudio.', 'Clique ou arraste um arquivo para a área de upload.');
-          return;
-        }
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('model', 'faster-whisper-large-v3');
-        formData.append('response_format', responseFormatEl.value);
-        formData.append('language', languageEl.value.trim() || 'pt');
-
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Transcrevendo…';
-
-        try {
-          const ac = new AbortController();
-          setTimeout(() => ac.abort(), 120000);
-          const r = await fetch('/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + apiKey,
-            },
-            body: formData,
-            signal: ac.signal,
-          });
-
-          if (!r.ok) {
-            let errData;
-            try {
-              errData = await r.json();
-            } catch {
-              errData = { error: { message: 'HTTP ' + r.status, type: 'http_error', hint: '' } };
-            }
-            const err = errData.error || { message: 'HTTP ' + r.status, type: 'unknown', hint: '' };
-            showError(err.type, err.message, err.hint);
-            return;
-          }
-
-          const respFormat = responseFormatEl.value;
-          let displayText = '';
-
-          if (respFormat === 'text') {
-            displayText = await r.text();
-            transcriptionMeta.innerHTML = '<span>Formato: <strong>text</strong></span>';
-          } else if (respFormat === 'srt' || respFormat === 'vtt') {
-            displayText = await r.text();
-            transcriptionMeta.innerHTML = '<span>Formato: <strong>' + respFormat + '</strong></span>';
-          } else {
-            // json or verbose_json
-            const data = await r.json();
-            if (respFormat === 'verbose_json') {
-              displayText = data.text || '';
-              const segments = data.segments || [];
-              const lang = data.language || '—';
-              const duration = data.duration != null ? Number(data.duration).toFixed(1) + 's' : '—';
-              transcriptionMeta.innerHTML =
-                '<span>Idioma detectado: <strong>' + lang + '</strong></span>' +
-                '<span>Duração: <strong>' + duration + '</strong></span>' +
-                '<span>Segmentos: <strong>' + segments.length + '</strong></span>';
-            } else {
-              displayText = data.text || '';
-              transcriptionMeta.innerHTML = '<span>Formato: <strong>json</strong></span>';
-            }
-          }
-
-          transcriptionText.textContent = displayText;
-          resultBox.classList.add('visible');
-        } catch (e) {
-          showError('network_error', e.message || 'Erro de rede', 'Verifique sua conexão e tente novamente.');
-        } finally {
-          submitBtn.disabled = false;
-          submitBtn.textContent = 'Transcrever';
-        }
-      });
-    })();
-  </script>
+  <script src="/landing.js"></script>
 </body>
 </html>
