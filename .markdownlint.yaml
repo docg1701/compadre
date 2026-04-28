@@ -34,3 +34,6 @@ MD040: false
 
 # Allow flexible ordered list numbering
 MD029: false
+
+# Allow asterisk strong style (**bold**) — project convention
+MD050: false
