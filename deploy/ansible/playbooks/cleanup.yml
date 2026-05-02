@@ -202,10 +202,47 @@
       failed_when: false
 
     # =========================================================================
-    # Remove Deploy Key
+    # Remove Deploy Key (GitHub + local)
     # =========================================================================
 
-    - name: "[Git] Remove deploy key"
+    - name: "[Git] List deploy keys on GitHub"
+      when: github_pat | default('') | length > 0
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/docg1701/compadre/keys"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ github_pat }}"
+          Accept: "application/vnd.github+json"
+        return_content: true
+        status_code: [200]
+      register: _deploy_keys_list
+      no_log: true
+      become: false
+      failed_when: false
+
+    - name: "[Git] Delete deploy key from GitHub"
+      when:
+        - github_pat | default('') | length > 0
+        - _deploy_key_id | default('') | length > 0
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/docg1701/compadre/keys/{{ _deploy_key_id }}"
+        method: DELETE
+        headers:
+          Authorization: "Bearer {{ github_pat }}"
+          Accept: "application/vnd.github+json"
+        status_code: [204, 404]
+      no_log: true
+      become: false
+      failed_when: false
+      vars:
+        _matching_keys: >-
+          {{ (_deploy_keys_list.json | default([]))
+          | selectattr('title', 'equalto', 'compadre-vps-' + ansible_host) | list
+          if _deploy_keys_list.status | default(0) == 200
+          else [] }}
+        _deploy_key_id: "{{ _matching_keys[0].id | default('') }}"
+
+    - name: "[Git] Remove local deploy key files"
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -240,7 +277,8 @@
             ✓ Docker apt repository and GPG key removed
             ✓ Docker group removed
             ✓ UFW firewall disabled and removed
-            ✓ Deploy key removed (~/.ssh/compadre_deploy)
+            ✓ Deploy key removed from GitHub (compadre-vps-{{ ansible_host }})
+          ✓ Local deploy key files removed (~/.ssh/compadre_deploy)
 
           Kept (common system utilities): ca-certificates, curl, gnupg
 
