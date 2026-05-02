@@ -1,6 +1,6 @@
 [project]
 name = "compadre"
-version = "1.2.0"
+version = "1.4.0"
 description = "Compadre Ouve Mensagem Por Áudio, Devolve Resposta Escrita — Self-hosted STT API: faster-whisper large-v3-turbo"
 readme = "README.md"
 license = "MIT"
