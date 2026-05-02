@@ -73,6 +73,26 @@
           Set repo_url in inventory/production.yml to your Git repository URL.
         success_msg: "Repository URL is configured: {{ repo_url }}"
 
+    - name: "[Prereq] Validate GitHub PAT is configured"
+      ansible.builtin.assert:
+        that:
+          - github_pat | length > 0
+        fail_msg: >-
+          COMPADRE_GITHUB_PAT environment variable is not set or is empty.
+          Generate a GitHub Personal Access Token (classic) with 'repo' scope
+          at https://github.com/settings/tokens and export it:
+          export COMPADRE_GITHUB_PAT="ghp_YOUR_TOKEN"
+        success_msg: "GitHub PAT is configured."
+
+    - name: "[Prereq] Validate deploy_key_path is configured"
+      ansible.builtin.assert:
+        that:
+          - deploy_key_path | length > 0
+        fail_msg: >-
+          deploy_key_path is not configured.
+          Set deploy_key_path in inventory to an absolute path on the VPS.
+        success_msg: "Deploy key path is configured: {{ deploy_key_path }}"
+
     - name: "[Prereq] Validate key_registry_db_path"
       # Inventory-supplied; absolute, ends in a filename, parent dir at
       # least one level below filesystem root (/foo/bar.db is allowed,
@@ -104,6 +124,8 @@
           - ca-certificates
           - curl
           - gnupg
+          - python3-requests
+          - python3-cryptography
         state: present
         update_cache: true
 
@@ -219,21 +241,47 @@
     # Git Clone
     # =========================================================================
 
-    - name: "[Git] Add GitHub to known_hosts"
-      ansible.builtin.known_hosts:
-        name: github.com
-        key: >-
-          github.com ssh-ed25519
-          AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-        state: present
+    - name: "[Git] Generate deploy key for GitHub access"
+      community.crypto.openssh_keypair:
+        path: "{{ deploy_key_path }}"
+        type: ed25519
+        comment: "compadre-deploy"
+      become: false
+
+    - name: "[Git] Read deploy public key"
+      ansible.builtin.slurp:
+        src: "{{ deploy_key_path }}.pub"
+      register: pubkey_content
+      become: false
+
+    - name: "[Git] Register deploy key with GitHub"
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/docg1701/compadre/keys"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ github_pat }}"
+          Accept: "application/vnd.github+json"
+        body:
+          title: "compadre-vps"
+          key: "{{ pubkey_content.content | b64decode }}"
+          read_only: true
+        body_format: json
+        status_code: [201, 422]
+      register: deploy_key_result
+      no_log: true
+      become: false
+      changed_when: deploy_key_result.status == 201
 
     - name: "[Git] Clone Compadre repository"
       ansible.builtin.git:
         repo: "{{ repo_url }}"
         dest: "~/compadre"
         version: "{{ repo_branch }}"
+        key_file: "{{ deploy_key_path }}"
+        accept_hostkey: true
         force: true
         update: true
+      become: false
 
     # Pre-volume-migration host artefacts: early Story 4.x bootstraps used a
     # ``./data/keys`` host bind mount before the compadre-registry named volume

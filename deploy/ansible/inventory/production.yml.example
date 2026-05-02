@@ -4,7 +4,7 @@ all:
       # VPS connection — set these to your server's IP and SSH user
       ansible_host: "CHANGE_ME"
       ansible_user: "CHANGE_ME"
-      ansible_ssh_common_args: "-o ForwardAgent=yes"
+
 
   vars:
     # Fernet key used to encrypt tax IDs at rest in the key registry (REQUIRED).
@@ -46,6 +46,19 @@ all:
 
     # Operator contact string shown in CLI error messages (e.g. your ops email).
     operator_contact_hint: ""
+
+    # GitHub Personal Access Token (classic) with 'repo' scope.
+    # Used once to register the deploy key via API. Generate at:
+    #   https://github.com/settings/tokens → Generate new token (classic)
+    #   Scope: repo | Name: compadre-deploy
+    # Export before running bootstrap/update:
+    #   export COMPADRE_GITHUB_PAT="ghp_YOUR_TOKEN"
+    # After the deploy key is registered, the PAT can be revoked — all
+    # subsequent git operations use the deploy key.
+    github_pat: "{{ lookup('env', 'COMPADRE_GITHUB_PAT') }}"
+
+    # Path to SSH deploy key generated on VPS for GitHub access
+    deploy_key_path: "/home/{{ ansible_user }}/.ssh/compadre_deploy"
 
     # Git repository URL and branch to clone on the VPS
     repo_url: "CHANGE_ME"

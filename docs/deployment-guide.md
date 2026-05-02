@@ -20,7 +20,7 @@ Follow these steps to deploy Compadre on a clean VPS. Assume zero pre-installed 
 
 - [ ] SSH key that can reach the VPS as the ansible user
 
-- [ ] SSH agent running with GitHub key loaded (`ssh-add -l` shows your key) — needed for the git clone step during bootstrap. Alternatively, copy an SSH key to the VPS at `~/.ssh/id_ed25519` before running bootstrap.
+- [ ] GitHub Personal Access Token (classic) with `repo` scope generated at https://github.com/settings/tokens. Export as `COMPADRE_GITHUB_PAT` before running bootstrap. The PAT is used once to register a read-only deploy key; it can be revoked after the first successful bootstrap.
 
 - [ ] `python3` with `cryptography` and `secrets` (stdlib) available
 
@@ -47,6 +47,11 @@ export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python3 -c \
 # Passphrase for encrypting nightly backup tarballs (REQUIRED, ≥ 16 chars).
 export COMPADRE_BACKUP_PASSPHRASE="$(python3 -c \
   'import secrets; print(secrets.token_urlsafe(32))')"
+
+# GitHub Personal Access Token (classic) with 'repo' scope — used once.
+# Generate at https://github.com/settings/tokens → Tokens (classic)
+# Scope: repo | Name: compadre-deploy
+export COMPADRE_GITHUB_PAT="ghp_YOUR_TOKEN"
 ```
 
 ### 3. Configure Inventory
@@ -65,6 +70,7 @@ ansible_host: "YOUR_VPS_IP"
 ansible_user: "YOUR_SSH_USER"
 repo_url: "git@github.com:YOUR_USER/compadre.git"  # or your fork URL
 repo_branch: "main"
+deploy_key_path: "/home/{{ ansible_user }}/.ssh/compadre_deploy"
 domain: "YOUR_VPS_IP"  # or real DNS for Let's Encrypt
 billing_timezone: "UTC"  # or "America/Sao_Paulo" etc.
 ```
@@ -228,15 +234,16 @@ ssh YOUR_USER@YOUR_VPS_IP "echo 'YOUR_SUDO_PASS' | sudo -S rm -f /etc/apt/source
 **Control machine requirements:**
 
 - Ansible 2.14+ installed
-- `community.docker` Ansible collection installed
+- `community.docker`, `community.crypto`, and `community.general` Ansible collections installed
 - SSH access to the VPS
 - `COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY` environment variable set (Fernet key — see [Bootstrap](#bootstrap----first-deployment) for generation)
 - `COMPADRE_BACKUP_PASSPHRASE` environment variable set (≥ 16 chars, used by backup-keys.yml and restore-keys.yml)
+- `COMPADRE_GITHUB_PAT` environment variable set (GitHub Personal Access Token (classic) with `repo` scope, used once during initial bootstrap to register the deploy key; can be revoked afterwards)
 
-Install the required Ansible collection:
+Install the required Ansible collections:
 
 ```bash
-ansible-galaxy collection install community.docker
+ansible-galaxy collection install -r deploy/ansible/requirements.yml
 ```
 
 ## Inventory Configuration
@@ -249,15 +256,16 @@ all:
     compadre_vps:
       ansible_host: "YOUR_VPS_IP"
       ansible_user: "YOUR_SSH_USER"
-      ansible_ssh_common_args: "-o ForwardAgent=yes"
 
   vars:
     key_registry_encryption_key: "{{ lookup('env', 'COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY') }}"
     backup_passphrase: "{{ lookup('env', 'COMPADRE_BACKUP_PASSPHRASE') }}"
+    github_pat: "{{ lookup('env', 'COMPADRE_GITHUB_PAT') }}"
     operator_contact_hint: "Contact ops@example.com for billing."
     billing_timezone: "UTC"
     repo_url: "YOUR_REPO_URL"
     repo_branch: "master"
+    deploy_key_path: "/home/{{ ansible_user }}/.ssh/compadre_deploy"
     domain: "localhost"
     landing_enabled: true
     whisper_model_size: "large-v3-turbo"
@@ -277,10 +285,12 @@ For Oracle Cloud Ampere A1 (aarch64) deployments, use `deploy/ansible/inventory/
 | `ansible_user` | Yes | SSH user with key-based auth |
 | `key_registry_encryption_key` | Yes | Fernet key for encrypting tax IDs at rest (reads from `COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY` env var on the control machine). Maps to the `KEY_REGISTRY_ENCRYPTION_KEY` env var inside the container. |
 | `backup_passphrase` | Yes | Passphrase for encrypting nightly backup tarballs (reads from `COMPADRE_BACKUP_PASSPHRASE` env var on the control machine). Must be ≥ 16 characters. Maps to the `BACKUP_PASSPHRASE` env var inside the container. |
+| `github_pat` | Yes | GitHub Personal Access Token (classic) with `repo` scope, read from `COMPADRE_GITHUB_PAT` env var. Used only once during initial bootstrap to register the deploy key via the GitHub API. After the deploy key is registered, the PAT can be revoked. |
 | `operator_contact_hint` | No | Customer-facing contact string echoed in 401 hints. Maps to `OPERATOR_CONTACT_HINT`. |
 | `billing_timezone` | No | IANA timezone for billing calculations and the daily suspension sweep day-boundary (default: `UTC`). Maps to `BILLING_TIMEZONE`. **This is a contractual input** — the zone you set here dictates when a customer's `paid_until` expires and their key flips to 401; communicate it formally to customers at contract time. |
-| `repo_url` | Yes | Git repository URL |
+| `repo_url` | Yes | Git repository URL (SSH format: `git@github.com:USER/repo.git`). |
 | `repo_branch` | No | Branch to deploy (default: `master`) |
+| `deploy_key_path` | Yes | Absolute path on the VPS for the SSH deploy keypair (e.g. `/home/{{ ansible_user }}/.ssh/compadre_deploy`). The playbook generates the keypair and registers the public key as a read-only deploy key on GitHub. |
 | `domain` | No | Domain for Caddy HTTPS (default: `localhost` for self-signed). Set to a real domain for Let's Encrypt auto-cert. |
 | `landing_enabled` | No | Deploy the public landing page at the root URL (default: `true`). When false, Caddy uses `Caddyfile-no-landing` which proxies all paths to the API. The API endpoints (`/v1/*`, `/health`, etc.) are always available regardless. |
 | `whisper_model_size` | No | faster-whisper model size (default: `large-v3-turbo`). |
@@ -297,6 +307,7 @@ A fresh deploy requires these playbooks in sequence:
 cd deploy/ansible
 export COMPADRE_KEY_REGISTRY_ENCRYPTION_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export COMPADRE_BACKUP_PASSPHRASE="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export COMPADRE_GITHUB_PAT="ghp_YOUR_TOKEN"
 
 # 1. Bootstrap — installs everything, builds and starts services
 ansible-playbook playbooks/bootstrap.yml -i inventory/production.yml \
@@ -490,7 +501,7 @@ System-level components (installed by bootstrap):
 - Docker apt repository and GPG key
 - Docker group
 - UFW firewall (disabled, rules reset, package removed)
-- GitHub SSH key from `known_hosts`
+- Deploy key files (`~/.ssh/compadre_deploy`, `.pub`)
 
 **What it keeps:**
 

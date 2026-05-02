@@ -202,13 +202,17 @@
       failed_when: false
 
     # =========================================================================
-    # Remove GitHub from Known Hosts
+    # Remove Deploy Key
     # =========================================================================
 
-    - name: "[Git] Remove GitHub from known_hosts"
-      ansible.builtin.known_hosts:
-        name: github.com
+    - name: "[Git] Remove deploy key"
+      ansible.builtin.file:
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "{{ deploy_key_path }}"
+        - "{{ deploy_key_path }}.pub"
+      become: false
 
     # =========================================================================
     # Summary
@@ -236,7 +240,7 @@
             ✓ Docker apt repository and GPG key removed
             ✓ Docker group removed
             ✓ UFW firewall disabled and removed
-            ✓ GitHub SSH key removed from known_hosts
+            ✓ Deploy key removed (~/.ssh/compadre_deploy)
 
           Kept (common system utilities): ca-certificates, curl, gnupg
 
