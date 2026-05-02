@@ -20,7 +20,7 @@ Follow these steps to deploy Compadre on a clean VPS. Assume zero pre-installed 
 
 - [ ] SSH key that can reach the VPS as the ansible user
 
-- [ ] GitHub Personal Access Token (classic) with `repo` scope generated at https://github.com/settings/tokens. Export as `COMPADRE_GITHUB_PAT` before running bootstrap. The PAT is used once to register a read-only deploy key; it can be revoked after the first successful bootstrap.
+- [ ] GitHub Personal Access Token (classic) with `repo` scope generated at <https://github.com/settings/tokens>. Export as `COMPADRE_GITHUB_PAT` before running bootstrap. The PAT is used once to register a read-only deploy key; it can be revoked after the first successful bootstrap.
 
 - [ ] `python3` with `cryptography` and `secrets` (stdlib) available
 
