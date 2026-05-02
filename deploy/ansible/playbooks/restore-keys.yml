@@ -25,7 +25,7 @@
 
 - name: Restore Compadre key registry
   hosts: compadre_vps
-  gather_facts: false
+  gather_facts: true
 
   tasks:
     # =========================================================================
@@ -104,10 +104,18 @@
     # ``docker compose exec`` calls and is visible to the helper container
     # that performs the swap after the service stops.
 
-    # F6 — script body lives in deploy/ansible/scripts/restore-stage.sh;
-    # piped into ``bash -s`` inside the container. ``$BACKUP_FILE`` is
-    # passed via -e so the script reads it via shell parameter expansion
-    # (F4 — no raw jinja interpolation into a shell command).
+    # F6 — script body is slurped from the VPS git clone at
+    # ~/compadre/deploy/ansible/scripts/restore-stage.sh, base64-decoded,
+    # and piped into ``bash -s`` inside the container.
+    # No control-node file dependency.
+    # ``$BACKUP_FILE`` is passed via -e so the script reads it via shell
+    # parameter expansion (F4 — no raw jinja interpolation into a shell command).
+
+    - name: "[Stage] Read restore-stage script from VPS clone"
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/ansible/scripts/restore-stage.sh"
+      register: stage_script_slurp
+
     - name: "[Stage] Decrypt + untar + integrity-check"
       # BACKUP_PASSPHRASE is passed per-invocation (mirrors backup-keys.yml's
       # decision); it is the script's PBKDF2 input. Forwarded via the
@@ -122,7 +130,7 @@
           -e BACKUP_PASSPHRASE
           compadre-stt bash -s
         chdir: "~/compadre"
-        stdin: "{{ lookup('file', playbook_dir + '/../scripts/restore-stage.sh') }}"
+        stdin: "{{ stage_script_slurp.content | b64decode }}"
       environment:
         BACKUP_PASSPHRASE: "{{ backup_passphrase }}"
       register: stage_result
@@ -162,6 +170,11 @@
     # compadre-stt container's ``get_connection`` already enforces
     # ``journal_mode=WAL`` on every open.
 
+    - name: "[Restore] Read restore-swap script from VPS clone"
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts['env']['HOME'] }}/compadre/deploy/ansible/scripts/restore-swap.sh"
+      register: swap_script_slurp
+
     - name: "[Restore] Swap DB file via helper container"
       block:
         - name: "[Restore] Remove stale helper container from prior run"
@@ -169,11 +182,11 @@
             name: compadre-restore-helper
             state: absent
 
-        # F6 — script body lives in deploy/ansible/scripts/restore-swap.sh.
-        # The alpine helper container runs ``sh -c "$(cat ... | base64 -d)"``
-        # — passing the script content through a base64 round-trip
-        # sidesteps the docker_container ``command`` field's quoting layer
-        # without re-introducing the inline jinja blob.
+        # F6 — script body is slurped from the VPS git clone at
+        # ~/compadre/deploy/ansible/scripts/restore-swap.sh, base64-decoded,
+        # and embedded in the docker_container ``command`` field.
+        # The slurp → b64decode round-trip sidesteps the quoting layer
+        # without an inline jinja blob and without a control-node file dependency.
         - name: "[Restore] Create helper container for volume access"
           community.docker.docker_container:
             name: compadre-restore-helper
@@ -181,7 +194,7 @@
             command:
               - "sh"
               - "-c"
-              - "{{ lookup('file', playbook_dir + '/../scripts/restore-swap.sh') }}"
+              - "{{ swap_script_slurp.content | b64decode }}"
             volumes:
               - "compadre-registry:/var/lib/compadre"
             state: started
